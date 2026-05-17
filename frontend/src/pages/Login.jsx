@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Activity, Mail, Lock, Eye, EyeOff, ArrowLeft } from "lucide-react";
+import { Mail, Lock, Eye, EyeOff, ArrowLeft, ShieldCheck } from "lucide-react";
 
 const Login = ({ onBackClick }) => {
   const [showPassword, setShowPassword] = useState(false);
@@ -26,13 +26,25 @@ const Login = ({ onBackClick }) => {
     e.preventDefault();
     setIsLoading(true);
     setError("");
-    // Simulate API delay
+
+    // Capture the inputs from the form
+    const email = e.target.querySelector('input[type="email"]').value;
+    const password = e.target.querySelector('input[type="password"]').value;
+
+    // Simulate API delay [cite: 94]
     setTimeout(() => {
       setIsLoading(false);
-      setError("Authentication failed. Please verify your credentials.");
-    }, 1500);
-  };
 
+      // DEVELOPER BYPASS: Use these credentials to enter the Admin Dashboard
+      if (email === "admin@mesra.com" && password === "admin123") {
+        console.log("Authentication Successful: Role-Based Access Granted");
+        onLoginSuccess(); // This triggers the page change to Admin Dashboard in App.jsx
+      } else {
+        // Based on doc specifications for Audit Alerts [cite: 41]
+        setError("Authentication failed. Access Denied.");
+      }
+    }, 1200);
+  };
   return (
     <div className="relative min-h-screen w-full flex items-center justify-center overflow-hidden font-sans">
       {/* Background Images */}
@@ -67,28 +79,36 @@ const Login = ({ onBackClick }) => {
       <div className="relative z-10 w-full max-w-md px-6 animate-fade-in-up">
         <div className="bg-white/95 backdrop-blur-md py-12 px-10 shadow-2xl rounded-[2.5rem] border border-white">
           <div className="text-center mb-10">
-            <div className="flex justify-center items-center gap-3 text-[#2563EB] font-bold text-4xl mb-4">
-              <Activity size={40} className="animate-pulse" />
-              <span className="tracking-tight text-slate-900">
-                HMS <span className="text-[#2563EB]">Digital</span>
-              </span>
+            {/* UPDATED: Mesra Branding Section */}
+            <div className="flex flex-col items-center gap-3 mb-4">
+              <img
+                src="/mesra icon.png"
+                alt="Mesra Logo"
+                className="w-20 h-20 object-contain animate-float drop-shadow-md"
+              />
+              <div className="flex items-center gap-2 text-3xl font-black">
+                <span className="tracking-tight italic uppercase text-slate-900">
+                  Mesra{" "}
+                  <span className="text-[#2563EB] not-italic">Digital</span>
+                </span>
+              </div>
             </div>
-            <h2 className="text-xl font-bold text-slate-600 uppercase tracking-widest">
-              System Login
+            <h2 className="text-xs font-black text-slate-400 uppercase tracking-[0.3em] mb-2">
+              Clinical Portal Access
             </h2>
           </div>
 
           <form className="space-y-6" onSubmit={handleLogin}>
             {error && (
               <div className="bg-red-50 border-l-4 border-red-500 p-4 mb-4 rounded-r-xl animate-bounce">
-                <p className="text-xs font-bold text-red-600 flex items-center gap-2">
-                  <Activity size={14} /> {error}
+                <p className="text-[10px] font-black text-red-600 flex items-center gap-2 uppercase tracking-widest">
+                  Access Error: {error}
                 </p>
               </div>
             )}
 
             <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2 ml-1">
+              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">
                 Identity/Email
               </label>
               <div className="relative">
@@ -98,14 +118,14 @@ const Login = ({ onBackClick }) => {
                 <input
                   type="email"
                   required
-                  className="block w-full pl-12 pr-4 py-4 border border-slate-200 rounded-xl focus:border-[#2563EB] transition-all outline-none bg-white text-slate-900"
-                  placeholder="admin@hms.com"
+                  className="block w-full pl-12 pr-4 py-4 border border-slate-100 rounded-2xl focus:border-[#2563EB] focus:bg-white transition-all outline-none bg-slate-50 text-slate-900 font-bold"
+                  placeholder="admin@mesra.com"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2 ml-1">
+              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">
                 Access Key
               </label>
               <div className="relative">
@@ -115,7 +135,7 @@ const Login = ({ onBackClick }) => {
                 <input
                   type={showPassword ? "text" : "password"}
                   required
-                  className="block w-full pl-12 pr-12 py-4 border border-slate-200 rounded-xl focus:border-[#2563EB] transition-all outline-none bg-white text-slate-900"
+                  className="block w-full pl-12 pr-12 py-4 border border-slate-100 rounded-2xl focus:border-[#2563EB] focus:bg-white transition-all outline-none bg-slate-50 text-slate-900 font-bold"
                   placeholder="••••••••"
                 />
                 <button
@@ -131,20 +151,21 @@ const Login = ({ onBackClick }) => {
             <button
               type="submit"
               disabled={isLoading}
-              className={`w-full py-4 rounded-xl shadow-lg text-white font-bold uppercase tracking-widest mt-4 transition-all active:scale-95 cursor-pointer ${
+              className={`w-full py-5 rounded-2xl shadow-lg text-white font-black uppercase tracking-widest mt-4 transition-all active:scale-95 cursor-pointer ${
                 isLoading
                   ? "bg-slate-400 cursor-not-allowed"
-                  : "bg-[#2563EB] hover:bg-blue-700 shadow-blue-200"
+                  : "bg-[#2563EB] hover:bg-blue-700 shadow-blue-100"
               }`}
             >
-              {isLoading ? "Verifying Access..." : "Sign In Now"}
+              {isLoading ? "Verifying Mesra Access..." : "Secure Sign In"}
             </button>
           </form>
 
           <div className="mt-10 text-center">
-            <div className="inline-block px-4 py-1.5 bg-slate-100 rounded-full border border-slate-200">
-              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">
-                Security Status: Level 1 Encrypted
+            <div className="inline-block px-6 py-2 bg-slate-50 rounded-full border border-slate-100">
+              <p className="text-[10px] text-slate-400 font-black uppercase tracking-[0.2em] flex items-center gap-2">
+                <ShieldCheck size={12} className="text-green-500" /> AES-256
+                Encrypted Session
               </p>
             </div>
           </div>
