@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import {
   LineChart,
   Line,
@@ -33,8 +33,26 @@ import {
   Pill,
   Home,
   X,
+  Radio,
+  Stethoscope,
+  Store,
+  AlertCircle,
+  CheckCircle2,
+  Flame,
+  HeartPulse,
+  HardDriveDownload,
+  RefreshCw,
+  Mail,
+  Server,
+  UserCheck,
+  Upload,
+  User,
+  Eye,
+  ArrowLeft,
+  Check,
 } from "lucide-react";
 
+// Mock Data for Sparklines & Distribution (Dashboard Architecture Metrics)
 const patientData = [
   { day: "Mon", count: 400 },
   { day: "Tue", count: 300 },
@@ -53,13 +71,116 @@ const distributionData = [
 
 const COLORS = ["#2563EB", "#10B981", "#F59E0B", "#EF4444"];
 
-const AdminDashboard = ({ onLogout }) => {
+const AdminDashboard = ({
+  onLogout,
+  isMaintenanceMode,
+  setIsMaintenanceMode,
+}) => {
   const [activeTab, setActiveTab] = useState("overview");
+  const [systemStatus, setSystemStatus] = useState("open");
+  const fileInputRef = useRef(null);
 
-  // --- STAFF DIRECTORY STATE (COMBINED WITH PROFESSIONAL PROFILES)  ---
+  // --- CONFIG BRANDING STATES ---
+  const [hospitalName, setHospitalName] = useState("Mesra Digital Health");
+  const [hospitalEmail, setHospitalEmail] = useState("contact@mesra.com");
+  const [hospitalLogo, setHospitalLogo] = useState("/mesra icon.png");
+  const [locationName, setLocationName] = useState("Addis Ababa, Ethiopia");
+  const [adminPhone, setAdminPhone] = useState("+251 90 007 1103");
+  const [mfaEnabled, setMfaEnabled] = useState(true);
+
+  // --- METRICS (Dashboard Architecture) ---
+  const [systemHealth, setSystemHealth] = useState("98.4%");
+  const [auditAlertsCount, setAuditAlertsCount] = useState(0);
+  const [deptFilter, setDeptFilter] = useState("all");
+
+  // --- REFRESH UTILITY TIMESTAMPS ---
+  const [lastSyncTime, setLastSyncTime] = useState(
+    new Date().toLocaleTimeString(),
+  );
+
+  // --- PROFILE MANAGEMENT SCREEN SUBSYSTEMS ---
+  const [isManagementActive, setIsManagementActive] = useState(false);
+  const [managementTargetType, setManagementTargetType] = useState(null); // "staff" | "patient"
+  const [selectedProfile, setSelectedProfile] = useState(null);
+  const [isInlineEditing, setIsInlineEditing] = useState(false);
+
+  // --- DEPARTMENTS LIST CONFIGURATION ---
+  const departments = [
+    {
+      icon: <Beaker />,
+      label: "Laboratory Dashboard",
+      sub: "DAILY PATIENTS | PENDING TESTS | INVENTORY",
+      color: "emerald",
+      type: "clinical",
+    },
+    {
+      icon: <ClipboardList />,
+      label: "Ultrasound / Radiology Dashboard",
+      sub: "DAILY PATIENTS | IMAGING PROGRESS | REPORTS",
+      color: "amber",
+      type: "clinical",
+    },
+    {
+      icon: <Calculator />,
+      label: "Cashier Dashboard",
+      sub: "DAILY PATIENTS | PENDING INVOICES | TOTAL COLLECTION",
+      color: "blue",
+      type: "operational",
+    },
+    {
+      icon: <Pill />,
+      label: "Pharmacy Dashboard",
+      sub: "DAILY PATIENTS | PRESCRIPTIONS TO FILL | STOCK ALERTS",
+      color: "indigo",
+      type: "clinical",
+    },
+    {
+      icon: <Store />,
+      label: "Store Dashboard",
+      sub: "DAILY PATIENTS | TOTAL INVENTORY VALUE | LOW STOCK",
+      color: "slate",
+      type: "operational",
+    },
+    {
+      icon: <Home />,
+      label: "Ward Dashboard",
+      sub: "DAILY PATIENTS | BED OCCUPANCY | ADMISSION FLOW",
+      color: "rose",
+      type: "clinical",
+    },
+    {
+      icon: <Radio />,
+      label: "Reception Dashboard",
+      sub: "DAILY PATIENTS | WAITING LIST | QR CODE STATUS",
+      color: "blue",
+      type: "operational",
+    },
+    {
+      icon: <Stethoscope />,
+      label: "Doctor Dashboard",
+      sub: "DAILY PATIENTS | PENDING CONSULTATIONS | REMINDERS",
+      color: "indigo",
+      type: "clinical",
+    },
+    {
+      icon: <HeartPulse />,
+      label: "Triage Dashboard",
+      sub: "DAILY PATIENTS | QUEUED PATIENTS | WAIT TIMES",
+      color: "emerald",
+      type: "clinical",
+    },
+    {
+      icon: <HardDriveDownload />,
+      label: "Nurse Dashboard",
+      sub: "DAILY PATIENTS | IN-PATIENT VITALS | MEDICATION SCHEDULES",
+      color: "rose",
+      type: "clinical",
+    },
+  ];
+
+  // --- STAFF STATE (Staff_Directory & Professional Profiles) ---
   const [staffList, setStaffList] = useState([
     {
-      // Staff_Directory Fields
       id: "S-101",
       name: "Dr. Elias Tadesse",
       dob: "1985-05-12",
@@ -68,7 +189,6 @@ const AdminDashboard = ({ onLogout }) => {
       phone: "+251 911 223344",
       emergencyContact: "+251 920 112233",
       address: "Bole, Addis Ababa",
-      // Professional_Profiles Fields
       profileId: "P-501",
       jobTitle: "Doctor",
       dept: "Cardiology",
@@ -77,6 +197,7 @@ const AdminDashboard = ({ onLogout }) => {
       certNo: "MOH-8821",
       hireDate: "2024-01-10",
       contractStatus: "Active",
+      avatarColor: "bg-blue-600",
     },
     {
       id: "S-102",
@@ -95,6 +216,47 @@ const AdminDashboard = ({ onLogout }) => {
       certNo: "MOH-4431",
       hireDate: "2024-02-15",
       contractStatus: "Active",
+      avatarColor: "bg-rose-500",
+    },
+  ]);
+
+  // --- PATIENTS STATE (Patients Table Spec) ---
+  const [patientsList, setPatientsList] = useState([
+    {
+      id: "PT-201",
+      name: "Yared Tolossa",
+      dob: "1990-04-15",
+      gender: "Male",
+      contactInfo: "+251 911 556677",
+      regDate: "2026-01-12",
+      insuranceProvider: "Zemen Insurance",
+      policyNumber: "ZM-99823",
+      status: "Admitted",
+      avatarColor: "bg-emerald-600",
+    },
+    {
+      id: "PT-202",
+      name: "Aster Mengesha",
+      dob: "1988-11-23",
+      gender: "Female",
+      contactInfo: "+251 912 889900",
+      regDate: "2026-02-20",
+      insuranceProvider: "Private Cash",
+      policyNumber: "N/A",
+      status: "Discharged",
+      avatarColor: "bg-purple-600",
+    },
+    {
+      id: "PT-203",
+      name: "Dawit Alamu",
+      dob: "1995-07-05",
+      gender: "Male",
+      contactInfo: "+251 920 334411",
+      regDate: "2026-03-05",
+      insuranceProvider: "Nyala Insurance",
+      policyNumber: "NY-44102",
+      status: "Triage Queue",
+      avatarColor: "bg-amber-600",
     },
   ]);
 
@@ -102,12 +264,8 @@ const AdminDashboard = ({ onLogout }) => {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 20;
 
-  // MODAL CONTROL STATES
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [editingStaff, setEditingStaff] = useState(null);
-
+  // REGISTRATION REGULAR STATE
   const [isRegModalOpen, setIsRegModalOpen] = useState(false);
-  // Empty template mapping perfectly to both documentation schemas
   const [newStaff, setNewStaff] = useState({
     name: "",
     dob: "",
@@ -124,10 +282,73 @@ const AdminDashboard = ({ onLogout }) => {
     contractStatus: "Active",
   });
 
-  // --- LOGIC: REGISTER NEW STAFF (SAVES TO BOTH TABLE MAPPINGS)  ---
+  // --- LOGIC: PROFILE MANAGEMENT HUB INTERACTION ---
+  const launchProfileManagement = (targetProfile, type) => {
+    setSelectedProfile({ ...targetProfile });
+    setManagementTargetType(type);
+    setIsManagementActive(true);
+    setIsInlineEditing(false);
+  };
+
+  const saveInlineProfileChanges = () => {
+    if (managementTargetType === "staff") {
+      setStaffList(
+        staffList.map((s) =>
+          s.id === selectedProfile.id ? selectedProfile : s,
+        ),
+      );
+    } else {
+      setPatientsList(
+        patientsList.map((p) =>
+          p.id === selectedProfile.id ? selectedProfile : p,
+        ),
+      );
+    }
+    setIsInlineEditing(false);
+    alert("Database Synced: Internal modifications committed permanently.");
+  };
+
+  const toggleStatusActivation = () => {
+    let targetNewStatus = "";
+    if (managementTargetType === "staff") {
+      targetNewStatus =
+        selectedProfile.contractStatus === "Active" ? "Inactive" : "Active";
+      const updated = { ...selectedProfile, contractStatus: targetNewStatus };
+      setSelectedProfile(updated);
+      setStaffList(
+        staffList.map((s) => (s.id === selectedProfile.id ? updated : s)),
+      );
+    } else {
+      targetNewStatus =
+        selectedProfile.status === "Archived" ? "Admitted" : "Archived";
+      const updated = { ...selectedProfile, status: targetNewStatus };
+      setSelectedProfile(updated);
+      setPatientsList(
+        patientsList.map((p) => (p.id === selectedProfile.id ? updated : p)),
+      );
+    }
+  };
+
+  // --- BASE LOGIC FLOWS ---
+  const triggerTelemetryRefresh = () => {
+    setLastSyncTime(new Date().toLocaleTimeString());
+    setSystemHealth((95 + Math.random() * 5).toFixed(1) + "%");
+    alert(`System Core Sync Executed Successfully.`);
+  };
+
+  const handleLogoChange = (e) => {
+    if (e.target.files && e.target.files[0]) {
+      setHospitalLogo(URL.createObjectURL(e.target.files[0]));
+    }
+  };
+
+  const handleStatusChange = (status) => {
+    setSystemStatus(status);
+    setIsMaintenanceMode(status === "closed");
+  };
+
   const handleRegisterSave = (e) => {
     e.preventDefault();
-
     const nextIdNumber = staffList.length + 101;
     const createdStaff = {
       id: `S-${nextIdNumber}`,
@@ -144,13 +365,12 @@ const AdminDashboard = ({ onLogout }) => {
       yearsExp: newStaff.yearsExp,
       qualification: newStaff.qualification,
       certNo: newStaff.certNo,
-      hireDate: new Date().toISOString().split("T")[0], // Automatically tracks today's setup timestamp
+      hireDate: new Date().toISOString().split("T")[0],
       contractStatus: newStaff.contractStatus,
+      avatarColor: "bg-blue-600",
     };
-
     setStaffList([createdStaff, ...staffList]);
     setIsRegModalOpen(false);
-    // Reset back to blank database schema model template
     setNewStaff({
       name: "",
       dob: "",
@@ -169,53 +389,53 @@ const AdminDashboard = ({ onLogout }) => {
     setCurrentPage(1);
   };
 
-  // --- LOGIC: UPDATE STATUS TO INACTIVE ---
-  const handleDelete = (id) => {
-    if (
-      window.confirm(
-        "Are you sure you want to flag this staff contract profile status as Inactive?",
-      )
-    ) {
-      setStaffList(
-        staffList.map((s) =>
-          s.id === id ? { ...s, contractStatus: "Inactive" } : s,
-        ),
+  const handleDeptToggle = () => {
+    if (deptFilter === "all") setDeptFilter("clinical");
+    else if (deptFilter === "clinical") setDeptFilter("operational");
+    else setDeptFilter("all");
+  };
+
+  const currentTabItems = () => {
+    if (activeTab === "staff") {
+      return staffList.filter(
+        (s) =>
+          s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          s.id.toLowerCase().includes(searchTerm.toLowerCase()),
       );
     }
-  };
-
-  const handleEditSave = (e) => {
-    e.preventDefault();
-    setStaffList(
-      staffList.map((s) => (s.id === editingStaff.id ? editingStaff : s)),
+    return patientsList.filter(
+      (p) =>
+        p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        p.id.toLowerCase().includes(searchTerm.toLowerCase()),
     );
-    setIsEditModalOpen(false);
   };
 
-  // --- LOGIC: SEARCH FILTER ---
-  const filteredStaff = staffList.filter(
-    (s) =>
-      s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      s.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      s.jobTitle.toLowerCase().includes(searchTerm.toLowerCase()),
+  const filteredDepts = departments.filter(
+    (d) => deptFilter === "all" || d.type === deptFilter,
   );
-
-  const totalPages = Math.ceil(filteredStaff.length / itemsPerPage) || 1;
-  const currentItems = filteredStaff.slice(
+  const currentFilteredList = currentTabItems();
+  const totalPages = Math.ceil(currentFilteredList.length / itemsPerPage) || 1;
+  const currentPaginatedItems = currentFilteredList.slice(
     (currentPage - 1) * itemsPerPage,
     currentPage * itemsPerPage,
   );
 
   return (
     <div className="flex min-h-screen bg-[#F8FAFC] font-sans text-slate-900">
+      <style>{`
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 10px; }
+      `}</style>
+
       {/* SIDEBAR */}
       <aside className="w-72 bg-white border-r border-slate-200 flex flex-col fixed h-full z-50">
         <div className="p-8">
           <div className="flex items-center gap-3 mb-10">
             <img
-              src="/mesra icon.png"
-              alt="Mesra"
-              className="w-10 h-10 object-contain"
+              src={hospitalLogo}
+              alt="Mesra Logo"
+              className="w-10 h-10 object-contain rounded-xl"
             />
             <span className="text-2xl font-black italic uppercase text-blue-600">
               Mesra
@@ -225,26 +445,51 @@ const AdminDashboard = ({ onLogout }) => {
             <NavItem
               icon={<LayoutDashboard />}
               label="Dashboard"
-              active={activeTab === "overview"}
-              onClick={() => setActiveTab("overview")}
+              active={activeTab === "overview" && !isManagementActive}
+              onClick={() => {
+                setActiveTab("overview");
+                setIsManagementActive(false);
+              }}
             />
             <NavItem
               icon={<Users />}
               label="Staff Directory"
-              active={activeTab === "staff"}
-              onClick={() => setActiveTab("staff")}
+              active={activeTab === "staff" && !isManagementActive}
+              onClick={() => {
+                setActiveTab("staff");
+                setIsManagementActive(false);
+                setSearchTerm("");
+                setCurrentPage(1);
+              }}
+            />
+            <NavItem
+              icon={<UserCheck />}
+              label="Patient Registry"
+              active={activeTab === "patients" && !isManagementActive}
+              onClick={() => {
+                setActiveTab("patients");
+                setIsManagementActive(false);
+                setSearchTerm("");
+                setCurrentPage(1);
+              }}
             />
             <NavItem
               icon={<UserCog />}
               label="Profile"
-              active={activeTab === "profile"}
-              onClick={() => setActiveTab("profile")}
+              active={activeTab === "profile" && !isManagementActive}
+              onClick={() => {
+                setActiveTab("profile");
+                setIsManagementActive(false);
+              }}
             />
             <NavItem
               icon={<Settings />}
               label="Settings"
-              active={activeTab === "settings"}
-              onClick={() => setActiveTab("settings")}
+              active={activeTab === "settings" && !isManagementActive}
+              onClick={() => {
+                setActiveTab("settings");
+                setIsManagementActive(false);
+              }}
             />
           </nav>
         </div>
@@ -256,336 +501,855 @@ const AdminDashboard = ({ onLogout }) => {
         </button>
       </aside>
 
+      {/* CONTAINER HUB */}
       <main className="flex-1 ml-72 p-8">
-        {/* OVERVIEW TAB */}
-        {activeTab === "overview" && (
-          <div className="space-y-8 animate-fade-in-up">
-            <header className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm flex flex-col md:flex-row justify-between items-center gap-6">
-              <div className="flex items-center gap-6">
-                <div className="w-20 h-20 bg-blue-600 rounded-3xl flex items-center justify-center text-white text-3xl font-black">
-                  M
+        {/* RENDER DETAILED MANAGED PROFILE PORTAL INSTEAD OF STANDARD DIRECTORY PARAMS WHEN TRIGGERED */}
+        {isManagementActive ? (
+          <div className="animate-fade-in-up space-y-6 max-w-4xl mx-auto">
+            {/* Nav Header Row */}
+            <div className="flex justify-between items-center border-b pb-4 border-slate-100">
+              <button
+                onClick={() => setIsManagementActive(false)}
+                className="flex items-center gap-2 text-slate-400 hover:text-slate-900 font-black text-xs uppercase tracking-widest transition-colors cursor-pointer"
+              >
+                <ArrowLeft size={16} /> Back to Directory
+              </button>
+              <div className="flex gap-2">
+                {isInlineEditing ? (
+                  <button
+                    onClick={saveInlineProfileChanges}
+                    className="bg-emerald-600 text-white px-5 py-3 rounded-xl font-black text-xs uppercase tracking-widest flex items-center gap-2 hover:bg-emerald-700 cursor-pointer shadow-md"
+                  >
+                    <Check size={14} /> Save Changes
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => setIsInlineEditing(true)}
+                    className="bg-slate-900 text-white px-5 py-3 rounded-xl font-black text-xs uppercase tracking-widest flex items-center gap-2 hover:bg-black cursor-pointer shadow-md"
+                  >
+                    <Edit size={14} /> Edit Profile
+                  </button>
+                )}
+                <button
+                  onClick={toggleStatusActivation}
+                  className={`px-5 py-3 rounded-xl font-black text-xs uppercase tracking-widest cursor-pointer shadow-md transition-all ${
+                    (
+                      managementTargetType === "staff"
+                        ? selectedProfile.contractStatus === "Active"
+                        : selectedProfile.status !== "Archived"
+                    )
+                      ? "bg-red-50 text-red-600 hover:bg-red-100"
+                      : "bg-emerald-50 text-emerald-600 hover:bg-emerald-100"
+                  }`}
+                >
+                  {managementTargetType === "staff"
+                    ? selectedProfile.contractStatus === "Active"
+                      ? "Inactivate Account"
+                      : "Activate Account"
+                    : selectedProfile.status !== "Archived"
+                      ? "Archive Patient"
+                      : "Restore Patient"}
+                </button>
+              </div>
+            </div>
+
+            {/* Dossier Card Sheet Layout Layout */}
+            <div className="bg-white rounded-[2.5rem] border border-slate-100 p-8 shadow-sm grid md:grid-cols-3 gap-8">
+              {/* Photo Area Section */}
+              <div className="text-center md:border-r border-slate-50 md:pr-8 flex flex-col justify-center">
+                <div
+                  className={`w-36 h-36 ${selectedProfile.avatarColor || "bg-blue-600"} rounded-[2.5rem] flex items-center justify-center text-white text-5xl font-black mx-auto mb-4 shadow-xl border-4 border-white`}
+                >
+                  {selectedProfile.name[0]}
                 </div>
-                <div>
-                  <h1 className="text-3xl font-black text-slate-900">
-                    Mesra Digital Health
-                  </h1>
-                  <div className="flex flex-wrap gap-4 mt-2 items-center text-slate-400 text-xs font-bold">
-                    <span className="bg-blue-50 px-3 py-1 rounded-lg text-blue-600 uppercase">
-                      Head Administrator
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <Phone size={12} className="text-blue-500" /> +251 90 007
-                      1103
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <MapPin size={12} className="text-blue-500" /> Addis Ababa
-                    </span>
+                <h2 className="text-xl font-black text-slate-900">
+                  {selectedProfile.name}
+                </h2>
+                <p className="text-xs font-bold text-blue-500 uppercase mt-1 tracking-wider">
+                  ID: {selectedProfile.id}
+                </p>
+                <div className="mt-4">
+                  <span
+                    className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                      (
+                        managementTargetType === "staff"
+                          ? selectedProfile.contractStatus === "Active"
+                          : selectedProfile.status !== "Archived"
+                      )
+                        ? "bg-emerald-100 text-emerald-600"
+                        : "bg-slate-100 text-slate-500"
+                    }`}
+                  >
+                    {managementTargetType === "staff"
+                      ? selectedProfile.contractStatus
+                      : selectedProfile.status}
+                  </span>
+                </div>
+              </div>
+
+              {/* Data Specifications Field Readouts Block */}
+              <div className="md:col-span-2 space-y-6">
+                <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 border-b pb-1">
+                  Relational Database Metadata Dossier
+                </h3>
+                <div className="grid grid-cols-2 gap-x-6 gap-y-4">
+                  {/* Inline Conditionals for modifying variables directly on the page layout */}
+                  <ManageFieldItem
+                    label="Full Name"
+                    value={selectedProfile.name}
+                    isEdit={isInlineEditing}
+                    onChange={(val) =>
+                      setSelectedProfile({ ...selectedProfile, name: val })
+                    }
+                  />
+                  <ManageFieldItem
+                    label="Date of Birth"
+                    value={selectedProfile.dob}
+                    isEdit={isInlineEditing}
+                    onChange={(val) =>
+                      setSelectedProfile({ ...selectedProfile, dob: val })
+                    }
+                  />
+                  <ManageFieldItem
+                    label="Gender"
+                    value={selectedProfile.gender}
+                    isEdit={isInlineEditing}
+                    onChange={(val) =>
+                      setSelectedProfile({ ...selectedProfile, gender: val })
+                    }
+                  />
+
+                  {managementTargetType === "staff" ? (
+                    <>
+                      <ManageFieldItem
+                        label="National ID Key"
+                        value={selectedProfile.nationalId}
+                        isEdit={isInlineEditing}
+                        onChange={(val) =>
+                          setSelectedProfile({
+                            ...selectedProfile,
+                            nationalId: val,
+                          })
+                        }
+                      />
+                      <ManageFieldItem
+                        label="Contact Line"
+                        value={selectedProfile.phone}
+                        isEdit={isInlineEditing}
+                        onChange={(val) =>
+                          setSelectedProfile({ ...selectedProfile, phone: val })
+                        }
+                      />
+                      <ManageFieldItem
+                        label="Emergency Backup Link"
+                        value={selectedProfile.emergencyContact}
+                        isEdit={isInlineEditing}
+                        onChange={(val) =>
+                          setSelectedProfile({
+                            ...selectedProfile,
+                            emergencyContact: val,
+                          })
+                        }
+                      />
+                      <ManageFieldItem
+                        label="Assigned System Title"
+                        value={selectedProfile.jobTitle}
+                        isEdit={isInlineEditing}
+                        onChange={(val) =>
+                          setSelectedProfile({
+                            ...selectedProfile,
+                            jobTitle: val,
+                          })
+                        }
+                      />
+                      <ManageFieldItem
+                        label="Operational Department"
+                        value={selectedProfile.dept}
+                        isEdit={isInlineEditing}
+                        onChange={(val) =>
+                          setSelectedProfile({ ...selectedProfile, dept: val })
+                        }
+                      />
+                      <ManageFieldItem
+                        label="Professional Qualification"
+                        value={selectedProfile.qualification}
+                        isEdit={isInlineEditing}
+                        onChange={(val) =>
+                          setSelectedProfile({
+                            ...selectedProfile,
+                            qualification: val,
+                          })
+                        }
+                      />
+                      <ManageFieldItem
+                        label="MOH Certification Identity"
+                        value={selectedProfile.certNo}
+                        isEdit={isInlineEditing}
+                        onChange={(val) =>
+                          setSelectedProfile({
+                            ...selectedProfile,
+                            certNo: val,
+                          })
+                        }
+                      />
+                    </>
+                  ) : (
+                    <>
+                      <ManageFieldItem
+                        label="Contact Line"
+                        value={selectedProfile.contactInfo}
+                        isEdit={isInlineEditing}
+                        onChange={(val) =>
+                          setSelectedProfile({
+                            ...selectedProfile,
+                            contactInfo: val,
+                          })
+                        }
+                      />
+                      <ManageFieldItem
+                        label="System Registration Timestamp"
+                        value={selectedProfile.regDate}
+                        isEdit={isInlineEditing}
+                        onChange={(val) =>
+                          setSelectedProfile({
+                            ...selectedProfile,
+                            regDate: val,
+                          })
+                        }
+                      />
+                      <ManageFieldItem
+                        label="Insurance Policy Provider"
+                        value={selectedProfile.insuranceProvider}
+                        isEdit={isInlineEditing}
+                        onChange={(val) =>
+                          setSelectedProfile({
+                            ...selectedProfile,
+                            insuranceProvider: val,
+                          })
+                        }
+                      />
+                      <ManageFieldItem
+                        label="Policy Claim Account No"
+                        value={selectedProfile.policyNumber}
+                        isEdit={isInlineEditing}
+                        onChange={(val) =>
+                          setSelectedProfile({
+                            ...selectedProfile,
+                            policyNumber: val,
+                          })
+                        }
+                      />
+                    </>
+                  )}
+                  <div className="col-span-2">
+                    <ManageFieldItem
+                      label="Home Residence Address"
+                      value={selectedProfile.address || "Addis Ababa, Ethiopia"}
+                      isEdit={isInlineEditing}
+                      onChange={(val) =>
+                        setSelectedProfile({ ...selectedProfile, address: val })
+                      }
+                    />
                   </div>
                 </div>
               </div>
-            </header>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <StatCardGraph
-                label="Total Patients"
-                value="1,284"
-                color="#3B82F6"
-                bgColor="bg-blue-50/50"
-              />
-              <StatCardGraph
-                label="Total Doctors"
-                value={staffList.filter((s) => s.jobTitle === "Doctor").length}
-                color="#10B981"
-                bgColor="bg-emerald-50/50"
-              />
-              <StatCardGraph
-                label="Total Employees"
-                value={staffList.length}
-                color="#F59E0B"
-                bgColor="bg-amber-50/50"
-              />
-            </div>
-
-            <div className="grid lg:grid-cols-3 gap-8">
-              <div className="lg:col-span-2 bg-white p-10 rounded-[3rem] border border-slate-100 shadow-sm">
-                <h3 className="text-xl font-black mb-6">
-                  Department Dashboards
-                </h3>
-                <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
-                  <DeptCard
-                    icon={<Beaker />}
-                    label="Laboratory"
-                    sub="LAB TESTS & RESULTS"
-                    color="emerald"
-                  />
-                  <DeptCard
-                    icon={<Calculator />}
-                    label="Cashier"
-                    sub="PAYMENTS & BILLING"
-                    color="blue"
-                  />
-                  <DeptCard
-                    icon={<Pill />}
-                    label="Pharmacy"
-                    sub="MEDICINE INVENTORY"
-                    color="indigo"
-                  />
-                  <DeptCard
-                    icon={<Home />}
-                    label="Ward Management"
-                    sub="ADMISSIONS & OPERATIONS"
-                    color="rose"
-                  />
-                </div>
-              </div>
-
-              <div className="bg-white p-8 rounded-[3rem] border border-slate-100 shadow-sm text-center">
-                <h3 className="text-sm font-black uppercase text-slate-400 tracking-widest mb-4">
-                  Patient Distribution
-                </h3>
-                <div className="h-64">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={distributionData}
-                        innerRadius={60}
-                        outerRadius={80}
-                        paddingAngle={5}
-                        dataKey="value"
-                      >
-                        {distributionData.map((entry, index) => (
-                          <Cell
-                            key={`cell-${index}`}
-                            fill={COLORS[index % COLORS.length]}
-                          />
-                        ))}
-                      </Pie>
-                      <Tooltip />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
             </div>
           </div>
-        )}
+        ) : (
+          /* STANDARD FALLBACK RENDERS WHEN THE VIEW DOSSIER HOOK IS RESTED */
+          <>
+            {/* TAB 1: OVERVIEW HUB */}
+            {activeTab === "overview" && (
+              <div className="space-y-8 animate-fade-in-up">
+                <header className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm flex flex-col md:flex-row justify-between items-center gap-6">
+                  <div className="flex items-center gap-6">
+                    <div className="w-20 h-20 bg-blue-600 rounded-3xl overflow-hidden flex items-center justify-center text-white text-3xl font-black">
+                      {hospitalLogo === "/mesra icon.png" ? (
+                        hospitalName[0]
+                      ) : (
+                        <img
+                          src={hospitalLogo}
+                          className="w-full h-full object-cover"
+                          alt="Branding Hub"
+                        />
+                      )}
+                    </div>
+                    <div>
+                      <h1 className="text-3xl font-black text-slate-900">
+                        {hospitalName}
+                      </h1>
+                      <div className="flex flex-wrap gap-4 mt-2 items-center text-slate-400 text-xs font-bold">
+                        <span className="bg-blue-50 px-3 py-1 rounded-lg text-blue-600 uppercase">
+                          Head Administrator
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <Phone size={12} className="text-blue-500" />{" "}
+                          {adminPhone}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <MapPin size={12} className="text-blue-500" />{" "}
+                          {locationName}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
 
-        {/* STAFF DIRECTORY VIEW (EXTENDED ROWS BASED ON DB SPECS)  */}
-        {activeTab === "staff" && (
-          <div className="animate-fade-in-up">
-            <div className="flex justify-between items-end mb-8">
-              <div>
-                <h1 className="text-4xl font-black text-slate-900 italic">
-                  Staff Directory
-                </h1>
-                <p className="text-slate-400 font-medium mt-1">
-                  Total Registered Profiles: {staffList.length}
-                </p>
-              </div>
-              <button
-                onClick={() => setIsRegModalOpen(true)}
-                className="bg-blue-600 text-white px-6 py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-200 flex items-center gap-2 hover:bg-blue-700 transition-all cursor-pointer"
-              >
-                <Plus size={18} /> Register System Profile
-              </button>
-            </div>
+                  <div className="bg-slate-50 p-2.5 rounded-2xl border border-slate-100 flex gap-1.5">
+                    <StatusButton
+                      current={systemStatus}
+                      type="open"
+                      onClick={() => handleStatusChange("open")}
+                      label="Open"
+                      activeColor="bg-emerald-500 text-white"
+                      icon={<CheckCircle2 size={14} />}
+                    />
+                    <StatusButton
+                      current={systemStatus}
+                      type="emergency"
+                      onClick={() => handleStatusChange("emergency")}
+                      label="Emergency"
+                      activeColor="bg-red-500 text-white"
+                      icon={<Flame size={14} />}
+                    />
+                    <StatusButton
+                      current={systemStatus}
+                      type="closed"
+                      onClick={() => handleStatusChange("closed")}
+                      label="Maintenance"
+                      activeColor="bg-amber-500 text-slate-900"
+                      icon={<AlertCircle size={14} />}
+                    />
+                  </div>
+                </header>
 
-            <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden">
-              <div className="p-6 border-b border-slate-50 flex items-center gap-4 bg-slate-50/30">
-                <Search className="text-slate-300" size={20} />
-                <input
-                  type="text"
-                  placeholder="Search by name, staff ID, or position..."
-                  className="bg-transparent border-none outline-none font-bold text-sm w-full"
-                  value={searchTerm}
-                  onChange={(e) => {
-                    setSearchTerm(e.target.value);
-                    setCurrentPage(1);
-                  }}
-                />
-              </div>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <StatCardGraph
+                    label="Total Staff"
+                    value={staffList.length}
+                    color="#3B82F6"
+                    bgColor="bg-blue-50/50"
+                    onAnchorAction={() => setActiveTab("staff")}
+                  />
+                  <StatCardGraph
+                    label="Total Patient Number"
+                    value={patientsList.length}
+                    color="#10B981"
+                    bgColor="bg-emerald-50/50"
+                    onAnchorAction={() => setActiveTab("patients")}
+                  />
+                  <StatCardGraph
+                    label="System Health"
+                    value={systemHealth}
+                    color="#F59E0B"
+                    bgColor="bg-amber-50/50"
+                    onAnchorAction={() => setActiveTab("settings")}
+                  />
+                  <StatCardGraph
+                    label="Audit Alerts"
+                    value={auditAlertsCount}
+                    color="#EF4444"
+                    bgColor="bg-rose-50/50"
+                    onAnchorAction={() => setActiveTab("settings")}
+                  />
+                </div>
 
-              <div className="overflow-x-auto">
-                <table className="w-full text-left min-w-[1000px]">
-                  <thead>
-                    <tr className="text-[10px] font-black uppercase text-slate-400 border-b border-slate-50 tracking-widest">
-                      <th className="p-6">Staff / Profile ID</th>
-                      <th className="p-6">Full Name</th>
-                      <th className="p-6">Title & Dept</th>
-                      <th className="p-6">National ID / Contact</th>
-                      <th className="p-6">Qualification / Experience</th>
-                      <th className="p-6">Contract Status</th>
-                      <th className="p-6 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="text-sm font-bold text-slate-600">
-                    {currentItems.map((staff) => (
-                      <tr
-                        key={staff.id}
-                        className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors"
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                  <div className="lg:col-span-2 bg-white p-10 rounded-[3rem] border border-slate-100 shadow-sm">
+                    <div className="flex justify-between items-center mb-6">
+                      <h3 className="text-xl font-black">
+                        Department Dashboards
+                      </h3>
+                      <button
+                        onClick={handleDeptToggle}
+                        className="text-xs bg-slate-50 px-4 py-2 rounded-xl text-slate-500 font-black uppercase tracking-wider border border-slate-100 cursor-pointer"
                       >
-                        <td className="p-6">
-                          <span className="text-blue-600 font-black block">
-                            {staff.id}
-                          </span>
-                          <span className="text-[10px] text-slate-400 block font-bold">
-                            {staff.profileId}
-                          </span>
-                        </td>
-                        <td className="p-6">
-                          <span className="text-slate-900 block">
-                            {staff.name}
-                          </span>
-                          <span className="text-[10px] text-slate-400 block font-normal">
-                            {staff.address}
-                          </span>
-                        </td>
-                        <td className="p-6">
-                          <span className="text-slate-800 block text-xs uppercase">
-                            {staff.jobTitle}
-                          </span>
-                          <span className="text-[10px] text-blue-500 block font-black uppercase tracking-wider">
-                            {staff.dept}
-                          </span>
-                        </td>
-                        <td className="p-6 text-xs">
-                          <span className="text-slate-700 block font-mono">
-                            {staff.nationalId}
-                          </span>
-                          <span className="text-slate-400 block font-medium">
-                            {staff.phone}
-                          </span>
-                        </td>
-                        <td className="p-6 text-xs">
-                          <span className="text-slate-700 block truncate max-w-[180px]">
-                            {staff.qualification}
-                          </span>
-                          <span className="text-slate-400 block font-medium">
-                            {staff.yearsExp} Years Exp
-                          </span>
-                        </td>
-                        <td className="p-6">
-                          <span
-                            className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${
-                              staff.contractStatus === "Active"
-                                ? "bg-emerald-100 text-emerald-600"
-                                : staff.contractStatus === "On Leave"
-                                  ? "bg-amber-100 text-amber-600"
-                                  : "bg-slate-100 text-slate-500"
-                            }`}
+                        Toggle Filter
+                      </button>
+                    </div>
+                    <div className="space-y-4 max-h-[520px] overflow-y-auto pr-2 custom-scrollbar">
+                      {filteredDepts.map((dept, idx) => (
+                        <DeptCard
+                          key={idx}
+                          icon={dept.icon}
+                          label={dept.label}
+                          sub={dept.sub}
+                          color={dept.color}
+                        />
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="bg-white p-10 rounded-[3rem] border border-slate-100 shadow-sm flex flex-col justify-between items-center text-center h-full min-h-[400px]">
+                    <h3 className="text-sm font-black uppercase text-slate-400 tracking-widest w-full">
+                      Patient Distribution
+                    </h3>
+                    <div className="h-64 w-full flex items-center justify-center">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={distributionData}
+                            innerRadius={65}
+                            outerRadius={90}
+                            paddingAngle={5}
+                            dataKey="value"
                           >
-                            {staff.contractStatus}
+                            {distributionData.map((entry, index) => (
+                              <Cell
+                                key={`cell-${index}`}
+                                fill={COLORS[index % COLORS.length]}
+                              />
+                            ))}
+                          </Pie>
+                          <Tooltip />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
+                    <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-left mt-6 w-full px-4 border-t pt-6 border-slate-50">
+                      {distributionData.map((d, i) => (
+                        <div
+                          key={i}
+                          className="flex items-center gap-2 text-xs font-bold text-slate-600"
+                        >
+                          <div
+                            className="w-2.5 h-2.5 rounded-full"
+                            style={{ backgroundColor: COLORS[i] }}
+                          />
+                          <span>
+                            {d.name}: {d.value}
                           </span>
-                        </td>
-                        <td className="p-6 text-right">
-                          <div className="flex justify-end gap-2">
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* TAB 2: STAFF DIRECTORY VIEW */}
+            {activeTab === "staff" && (
+              <div className="animate-fade-in-up space-y-6">
+                <div className="flex justify-between items-end">
+                  <div>
+                    <h1 className="text-4xl font-black text-slate-900 italic">
+                      Staff Management
+                    </h1>
+                    <p className="text-slate-400 font-medium mt-1">
+                      Total Profiles: {staffList.length}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setIsRegModalOpen(true)}
+                    className="bg-blue-600 text-white px-6 py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg flex items-center gap-2 hover:bg-blue-700 cursor-pointer"
+                  >
+                    <Plus size={18} /> Register Profile
+                  </button>
+                </div>
+
+                <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden">
+                  <div className="p-6 border-b border-slate-50 flex items-center gap-4 bg-slate-50/30">
+                    <Search className="text-slate-300" size={20} />
+                    <input
+                      type="text"
+                      placeholder="Search staff members..."
+                      className="bg-transparent border-none outline-none font-bold text-sm w-full"
+                      value={searchTerm}
+                      onChange={(e) => {
+                        setSearchTerm(e.target.value);
+                        setCurrentPage(1);
+                      }}
+                    />
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left min-w-[1000px]">
+                      <thead>
+                        <tr className="text-[10px] font-black uppercase text-slate-400 border-b tracking-widest p-6">
+                          <th className="p-6">Staff Profile</th>
+                          <th className="p-6">Title & Dept</th>
+                          <th className="p-6">Contact Line</th>
+                          <th className="p-6">Contract Status</th>
+                          <th className="p-6 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="text-sm font-bold text-slate-600">
+                        {currentPaginatedItems.map((staff) => (
+                          <tr
+                            key={staff.id}
+                            className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors"
+                          >
+                            <td className="p-6 flex items-center gap-4">
+                              <div
+                                className={`w-10 h-10 rounded-xl ${staff.avatarColor} text-white font-black flex items-center justify-center text-xs shadow-sm`}
+                              >
+                                {staff.name[0]}
+                              </div>
+                              <div>
+                                <span className="text-slate-900 block font-black">
+                                  {staff.name}
+                                </span>
+                                <span className="text-[10px] text-blue-600 font-bold uppercase tracking-wider">
+                                  {staff.id}
+                                </span>
+                              </div>
+                            </td>
+                            <td className="p-6">
+                              <span className="text-slate-800 block text-xs uppercase">
+                                {staff.jobTitle}
+                              </span>
+                              <span className="text-[10px] text-slate-400 block font-normal">
+                                {staff.dept}
+                              </span>
+                            </td>
+                            <td className="p-6 font-mono text-xs text-slate-500">
+                              {staff.phone}
+                            </td>
+                            <td className="p-6">
+                              <span
+                                className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${staff.contractStatus === "Active" ? "bg-emerald-100 text-emerald-600" : "bg-slate-100 text-slate-500"}`}
+                              >
+                                {staff.contractStatus}
+                              </span>
+                            </td>
+                            {/* FIXED ACTION CONTROL DELEGATE: REPLACED CRUDE CRUD WITH THE MANAGE PANEL ROUTE ACTION BUTTON */}
+                            <td className="p-6 text-right">
+                              <button
+                                onClick={() =>
+                                  launchProfileManagement(staff, "staff")
+                                }
+                                className="px-4 py-2 bg-slate-50 border border-slate-100 text-slate-600 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 hover:bg-blue-600 hover:text-white ml-auto transition-all cursor-pointer shadow-sm"
+                              >
+                                <Eye size={12} /> Manage Profile
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <PaginationBar
+                    current={currentPage}
+                    total={totalPages}
+                    onPrev={() => setCurrentPage((p) => p - 1)}
+                    onNext={() => setCurrentPage((p) => p + 1)}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* TAB 3: PATIENT REGISTRY VIEW */}
+            {activeTab === "patients" && (
+              <div className="animate-fade-in-up space-y-6">
+                <div>
+                  <h1 className="text-4xl font-black text-slate-900 italic">
+                    Patient Registry
+                  </h1>
+                  <p className="text-slate-400 font-medium mt-1">
+                    Total Active Records: {patientsList.length}
+                  </p>
+                </div>
+
+                <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden">
+                  <div className="p-6 border-b border-slate-50 flex items-center gap-4 bg-slate-50/30">
+                    <Search className="text-slate-300" size={20} />
+                    <input
+                      type="text"
+                      placeholder="Search records by Patient Name or ID..."
+                      className="bg-transparent border-none outline-none font-bold text-sm w-full"
+                      value={searchTerm}
+                      onChange={(e) => {
+                        setSearchTerm(e.target.value);
+                        setCurrentPage(1);
+                      }}
+                    />
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left min-w-[1000px]">
+                      <thead>
+                        <tr className="text-[10px] font-black uppercase text-slate-400 border-b tracking-widest">
+                          <th className="p-6">Patient Profile</th>
+                          <th className="p-6">Contact Line</th>
+                          <th className="p-6">Registration Date</th>
+                          <th className="p-6">Insurance Carrier</th>
+                          <th className="p-6">Triage Load</th>
+                          <th className="p-6 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="text-sm font-bold text-slate-600">
+                        {currentPaginatedItems.map((patient) => (
+                          <tr
+                            key={patient.id}
+                            className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors"
+                          >
+                            <td className="p-6 flex items-center gap-4">
+                              <div
+                                className={`w-10 h-10 rounded-xl ${patient.avatarColor} text-white font-black flex items-center justify-center text-xs shadow-sm`}
+                              >
+                                {patient.name[0]}
+                              </div>
+                              <div>
+                                <span className="text-slate-900 block font-black">
+                                  {patient.name}
+                                </span>
+                                <span className="text-[10px] text-emerald-600 font-bold uppercase tracking-wider">
+                                  {patient.id}
+                                </span>
+                              </div>
+                            </td>
+                            <td className="p-6 font-mono text-xs text-slate-500">
+                              {patient.contactInfo}
+                            </td>
+                            <td className="p-6 font-mono text-xs text-slate-400">
+                              {patient.regDate}
+                            </td>
+                            <td className="p-6 text-xs uppercase opacity-80">
+                              {patient.insuranceProvider}
+                            </td>
+                            <td className="p-6">
+                              <span
+                                className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${patient.status === "Admitted" ? "bg-blue-100 text-blue-600" : patient.status === "Triage Queue" ? "bg-amber-100 text-amber-600" : "bg-slate-100 text-slate-500"}`}
+                              >
+                                {patient.status}
+                              </span>
+                            </td>
+                            {/* FIXED PASSTHROUGH TO DEDICATED INDIVIDUAL MANAGEMENT VIEW FOR THE PATIENT MAP SCHEMA */}
+                            <td className="p-6 text-right">
+                              <button
+                                onClick={() =>
+                                  launchProfileManagement(patient, "patient")
+                                }
+                                className="px-4 py-2 bg-slate-50 border border-slate-100 text-slate-600 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 hover:bg-blue-600 hover:text-white ml-auto transition-all cursor-pointer shadow-sm"
+                              >
+                                <Eye size={12} /> Manage Dossier
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <PaginationBar
+                    current={currentPage}
+                    total={totalPages}
+                    onPrev={() => setCurrentPage((p) => p - 1)}
+                    onNext={() => setCurrentPage((p) => p + 1)}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* TAB 4: PROFILE */}
+            {activeTab === "profile" && (
+              <div className="max-w-4xl mx-auto animate-fade-in-up">
+                <h1 className="text-4xl font-black text-slate-900 italic mb-8">
+                  Admin Identity
+                </h1>
+                <div className="grid md:grid-cols-3 gap-8">
+                  <div className="bg-white p-8 rounded-[3rem] border border-slate-100 shadow-sm text-center">
+                    <div className="w-32 h-32 bg-blue-600 rounded-[2.5rem] flex items-center justify-center text-white text-5xl font-black mx-auto mb-6 shadow-xl shadow-blue-100">
+                      M
+                    </div>
+                    <h3 className="text-xl font-black text-slate-900">
+                      Admin Account
+                    </h3>
+                    <p className="text-xs font-black text-blue-500 uppercase tracking-widest mt-2">
+                      Level 1 Authority
+                    </p>
+                  </div>
+                  <div className="md:col-span-2 bg-white p-10 rounded-[3rem] border border-slate-100 shadow-sm space-y-6">
+                    <ProfileField
+                      label="Full Name"
+                      value="Head Administrator"
+                    />
+                    <ProfileField
+                      label="Identity/Email"
+                      value="admin@mesra.com"
+                    />
+                    <ProfileField label="Assigned Phone" value={adminPhone} />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* TAB 5: SYSTEM CONFIGURATION SETTINGS */}
+            {activeTab === "settings" && (
+              <div className="max-w-4xl mx-auto animate-fade-in-up space-y-8">
+                <h1 className="text-4xl font-black text-slate-900 italic">
+                  System Configuration
+                </h1>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm space-y-4">
+                    <h3 className="text-xs font-black uppercase text-slate-400 tracking-widest flex items-center gap-2">
+                      <RefreshCw size={14} className="text-blue-500" /> Hospital
+                      Branding
+                    </h3>
+                    <div
+                      onClick={() => fileInputRef.current.click()}
+                      className="p-6 border-2 border-dashed border-slate-200 rounded-[2rem] flex flex-col items-center gap-2 cursor-pointer hover:bg-slate-50 hover:border-blue-500 transition-all group"
+                    >
+                      <input
+                        type="file"
+                        ref={fileInputRef}
+                        className="hidden"
+                        accept="image/*"
+                        onChange={handleLogoChange}
+                      />
+                      {hospitalLogo === "/mesra icon.png" ? (
+                        <Upload
+                          size={18}
+                          className="text-slate-400 group-hover:scale-110 transition-transform"
+                        />
+                      ) : (
+                        <img
+                          src={hospitalLogo}
+                          className="w-10 h-10 object-contain rounded-lg shadow-sm"
+                          alt="Hospital Logo"
+                        />
+                      )}
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-wide">
+                        Change Active System Logo Asset
+                      </p>
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-black text-slate-400 uppercase ml-1">
+                        Entity Name
+                      </label>
+                      <input
+                        type="text"
+                        className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold mt-1 text-xs outline-none focus:border-blue-500"
+                        value={hospitalName}
+                        onChange={(e) => setHospitalName(e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-black text-slate-400 uppercase ml-1 flex items-center gap-1">
+                        <Mail size={10} /> Central System Email
+                      </label>
+                      <input
+                        type="email"
+                        className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold mt-1 text-xs outline-none focus:border-blue-500"
+                        value={hospitalEmail}
+                        onChange={(e) => setHospitalEmail(e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-black text-slate-400 uppercase ml-1">
+                        Regional Coordinates
+                      </label>
+                      <input
+                        type="text"
+                        className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold mt-1 text-xs outline-none focus:border-blue-500"
+                        value={locationName}
+                        onChange={(e) => setLocationName(e.target.value)}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-6">
+                    <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm space-y-4">
+                      <h3 className="text-xs font-black uppercase text-slate-400 tracking-widest flex items-center gap-2">
+                        <Server size={14} className="text-blue-500" /> Telemetry
+                        Monitor & Health Logs
+                      </h3>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                          <span className="text-[10px] text-slate-400 font-black uppercase block">
+                            Live Node Health
+                          </span>
+                          <input
+                            type="text"
+                            className="text-lg font-black bg-transparent border-none outline-none mt-1 w-full text-blue-600"
+                            value={systemHealth}
+                            onChange={(e) => setSystemHealth(e.target.value)}
+                          />
+                        </div>
+                        <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                          <span className="text-[10px] text-slate-400 font-black uppercase block">
+                            Active Audit Faults
+                          </span>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="text-lg font-black text-red-500">
+                              {auditAlertsCount}
+                            </span>
                             <button
-                              onClick={() => {
-                                setEditingStaff(staff);
-                                setIsEditModalOpen(true);
-                              }}
-                              className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all cursor-pointer"
+                              type="button"
+                              onClick={() => setAuditAlertsCount((p) => p + 1)}
+                              className="text-[9px] bg-red-50 text-red-600 font-black px-2 py-1 rounded uppercase tracking-wider ml-auto"
                             >
-                              <Edit size={16} />
-                            </button>
-                            <button
-                              onClick={() => handleDelete(staff.id)}
-                              className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all cursor-pointer"
-                            >
-                              <Trash2 size={16} />
+                              Trigger Alert
                             </button>
                           </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={triggerTelemetryRefresh}
+                        className="w-full py-3.5 bg-slate-900 hover:bg-slate-800 text-white font-black uppercase text-[10px] tracking-widest rounded-xl transition-all flex items-center justify-center gap-2 mt-2 cursor-pointer shadow-md"
+                      >
+                        <RefreshCw size={12} /> Run Framework Cache Refresh
+                      </button>
+                      <p className="text-center text-[9px] text-slate-400 font-bold uppercase tracking-wider">
+                        Last Dashboard Synchronization: {lastSyncTime}
+                      </p>
+                    </div>
 
-              <div className="p-6 bg-slate-50/50 border-t border-slate-50 flex items-center justify-between">
-                <p className="text-xs font-black text-slate-400 uppercase tracking-widest">
-                  Page {currentPage} of {totalPages}
-                </p>
-                <div className="flex gap-2">
-                  <button
-                    disabled={currentPage === 1}
-                    onClick={() => setCurrentPage((prev) => prev - 1)}
-                    className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-black disabled:opacity-30 transition-all cursor-pointer"
-                  >
-                    Previous
-                  </button>
-                  <button
-                    disabled={currentPage === totalPages}
-                    onClick={() => setCurrentPage((prev) => prev + 1)}
-                    className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-black disabled:opacity-30 transition-all cursor-pointer"
-                  >
-                    Next
-                  </button>
+                    <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm space-y-6">
+                      <h3 className="text-xs font-black uppercase text-slate-400 tracking-widest flex items-center gap-2">
+                        <Shield size={14} className="text-blue-500" /> System
+                        Guard Gates
+                      </h3>
+                      <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-100">
+                        <div>
+                          <span className="text-xs font-black block">
+                            Maintenance Gate
+                          </span>
+                          <span className="text-[10px] text-slate-400 font-bold block uppercase mt-0.5">
+                            {isMaintenanceMode
+                              ? "Locked to non-admins"
+                              : "Portal Network Live"}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const updatedState = !isMaintenanceMode;
+                            setIsMaintenanceMode(updatedState);
+                            setSystemStatus(updatedState ? "closed" : "open");
+                          }}
+                          className={`w-12 h-6 rounded-full transition-colors relative cursor-pointer ${isMaintenanceMode ? "bg-amber-500" : "bg-slate-200"}`}
+                        >
+                          <div
+                            className={`w-4 h-4 bg-white rounded-full absolute top-1 transition-all ${isMaintenanceMode ? "right-1" : "left-1"}`}
+                          />
+                        </button>
+                      </div>
+                      <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-100">
+                        <div>
+                          <span className="text-xs font-black block">
+                            Enforce MFA Verification
+                          </span>
+                          <span className="text-[10px] text-slate-400 font-bold block uppercase mt-0.5">
+                            Role-Based Gatekeeper Key
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setMfaEnabled(!mfaEnabled)}
+                          className={`w-12 h-6 rounded-full transition-colors relative cursor-pointer ${mfaEnabled ? "bg-blue-600" : "bg-slate-200"}`}
+                        >
+                          <div
+                            className={`w-4 h-4 bg-white rounded-full absolute top-1 transition-all ${mfaEnabled ? "right-1" : "left-1"}`}
+                          />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
-          </div>
-        )}
-
-        {/* PROFILE TAB */}
-        {activeTab === "profile" && (
-          <div className="max-w-4xl mx-auto animate-fade-in-up">
-            <h1 className="text-4xl font-black text-slate-900 italic mb-8">
-              Admin Identity
-            </h1>
-            <div className="grid md:grid-cols-3 gap-8">
-              <div className="bg-white p-8 rounded-[3rem] border border-slate-100 shadow-sm text-center">
-                <div className="w-32 h-32 bg-blue-600 rounded-[2.5rem] flex items-center justify-center text-white text-5xl font-black mx-auto mb-6 shadow-xl shadow-blue-100">
-                  M
-                </div>
-                <h3 className="text-xl font-black text-slate-900">
-                  Admin Account
-                </h3>
-                <p className="text-xs font-black text-blue-500 uppercase tracking-widest mt-2">
-                  Level 1 Authority
-                </p>
-              </div>
-              <div className="md:col-span-2 bg-white p-10 rounded-[3rem] border border-slate-100 shadow-sm space-y-6">
-                <ProfileField label="Full Name" value="Head Administrator" />
-                <ProfileField label="Identity/Email" value="admin@mesra.com" />
-                <ProfileField label="Assigned Phone" value="+251 90 007 1103" />
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* SETTINGS TAB */}
-        {activeTab === "settings" && (
-          <div className="max-w-4xl mx-auto animate-fade-in-up">
-            <h1 className="text-4xl font-black text-slate-900 italic mb-8">
-              System Configuration
-            </h1>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <SettingsCard
-                icon={<Shield className="text-blue-600" />}
-                title="Security & RBAC"
-                desc="Manage role-based access control and encryption keys."
-              />
-              <SettingsCard
-                icon={<Database className="text-emerald-600" />}
-                title="Database Backups"
-                desc="Configure automated clinical record backups and recovery."
-              />
-              <SettingsCard
-                icon={<Bell className="text-amber-600" />}
-                title="Audit Alerts"
-                desc="Set threshold for real-time operational audit alerts."
-              />
-              <SettingsCard
-                icon={<Lock className="text-purple-600" />}
-                title="MFA Control"
-                desc="Enable Multi-Factor Authentication for clinical portal access."
-              />
-            </div>
-          </div>
+            )}
+          </>
         )}
       </main>
 
-      {/* COMPREHENSIVE REGISTRATION MODAL (ALL DB FIELDS CAPTURED)  */}
+      {/* REGISTRATION MODAL WITH DUAL-TABLE SCHEMAS */}
       {isRegModalOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 overflow-y-auto">
           <div className="bg-white w-full max-w-2xl rounded-[2.5rem] p-8 animate-pop-in border border-slate-100 shadow-2xl relative my-auto">
@@ -599,18 +1363,17 @@ const AdminDashboard = ({ onLogout }) => {
               Register Professional Profile
             </h3>
             <p className="text-xs font-bold text-slate-400 uppercase tracking-wide mb-6">
-              Staff Directory & Operational Profiles Link{" "}
+              Staff Directory & Operational Profiles Link
             </p>
 
             <form onSubmit={handleRegisterSave} className="space-y-4">
-              {/* SECTION A: Staff_Directory Specifications  */}
               <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest border-b pb-1">
-                1. Demographics & Contact{" "}
+                1. Demographics & Contact (Staff_Directory)
               </p>
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="text-[10px] font-black text-slate-400 uppercase ml-1">
-                    Full Name{" "}
+                    Full Name
                   </label>
                   <input
                     type="text"
@@ -624,11 +1387,10 @@ const AdminDashboard = ({ onLogout }) => {
                 </div>
                 <div>
                   <label className="text-[10px] font-black text-slate-400 uppercase ml-1">
-                    National ID{" "}
+                    National ID
                   </label>
                   <input
                     type="text"
-                    placeholder="e.g. ET-9941"
                     className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold mt-1 text-xs outline-none"
                     value={newStaff.nationalId}
                     onChange={(e) =>
@@ -639,7 +1401,7 @@ const AdminDashboard = ({ onLogout }) => {
                 </div>
                 <div>
                   <label className="text-[10px] font-black text-slate-400 uppercase ml-1">
-                    Date of Birth{" "}
+                    Date of Birth
                   </label>
                   <input
                     type="date"
@@ -653,7 +1415,7 @@ const AdminDashboard = ({ onLogout }) => {
                 </div>
                 <div>
                   <label className="text-[10px] font-black text-slate-400 uppercase ml-1">
-                    Gender{" "}
+                    Gender
                   </label>
                   <select
                     className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold mt-1 text-xs outline-none"
@@ -668,11 +1430,10 @@ const AdminDashboard = ({ onLogout }) => {
                 </div>
                 <div>
                   <label className="text-[10px] font-black text-slate-400 uppercase ml-1">
-                    Contact Phone{" "}
+                    Contact Phone
                   </label>
                   <input
                     type="text"
-                    placeholder="+251..."
                     className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold mt-1 text-xs outline-none"
                     value={newStaff.phone}
                     onChange={(e) =>
@@ -683,7 +1444,7 @@ const AdminDashboard = ({ onLogout }) => {
                 </div>
                 <div>
                   <label className="text-[10px] font-black text-slate-400 uppercase ml-1">
-                    Emergency Contact{" "}
+                    Emergency Contact
                   </label>
                   <input
                     type="text"
@@ -701,11 +1462,10 @@ const AdminDashboard = ({ onLogout }) => {
               </div>
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase ml-1">
-                  Home Address{" "}
+                  Home Address
                 </label>
                 <input
                   type="text"
-                  placeholder="Sub City, Neighborhood"
                   className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold mt-1 text-xs outline-none"
                   value={newStaff.address}
                   onChange={(e) =>
@@ -715,14 +1475,13 @@ const AdminDashboard = ({ onLogout }) => {
                 />
               </div>
 
-              {/* SECTION B: Professional_Profiles Specifications  */}
               <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest border-b pb-1 pt-2">
-                2. Clinical & Professional Credentials{" "}
+                2. Credentials & Job Data (Professional_Profiles)
               </p>
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="text-[10px] font-black text-slate-400 uppercase ml-1">
-                    Job Title{" "}
+                    Job Title / Role
                   </label>
                   <select
                     className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold mt-1 text-xs outline-none"
@@ -740,11 +1499,10 @@ const AdminDashboard = ({ onLogout }) => {
                 </div>
                 <div>
                   <label className="text-[10px] font-black text-slate-400 uppercase ml-1">
-                    Department{" "}
+                    Department
                   </label>
                   <input
                     type="text"
-                    placeholder="e.g. Outpatient, Radiology"
                     className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold mt-1 text-xs outline-none"
                     value={newStaff.dept}
                     onChange={(e) =>
@@ -755,11 +1513,10 @@ const AdminDashboard = ({ onLogout }) => {
                 </div>
                 <div>
                   <label className="text-[10px] font-black text-slate-400 uppercase ml-1">
-                    Qualification{" "}
+                    Qualification
                   </label>
                   <input
                     type="text"
-                    placeholder="e.g. MD, Degree, PhD"
                     className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold mt-1 text-xs outline-none"
                     value={newStaff.qualification}
                     onChange={(e) =>
@@ -773,11 +1530,10 @@ const AdminDashboard = ({ onLogout }) => {
                 </div>
                 <div>
                   <label className="text-[10px] font-black text-slate-400 uppercase ml-1">
-                    Certification No{" "}
+                    Certification No
                   </label>
                   <input
                     type="text"
-                    placeholder="e.g. MOH-XXXX"
                     className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold mt-1 text-xs outline-none"
                     value={newStaff.certNo}
                     onChange={(e) =>
@@ -788,7 +1544,7 @@ const AdminDashboard = ({ onLogout }) => {
                 </div>
                 <div>
                   <label className="text-[10px] font-black text-slate-400 uppercase ml-1">
-                    Years of Experience{" "}
+                    Years of Experience
                   </label>
                   <input
                     type="number"
@@ -802,7 +1558,7 @@ const AdminDashboard = ({ onLogout }) => {
                 </div>
                 <div>
                   <label className="text-[10px] font-black text-slate-400 uppercase ml-1">
-                    Contract Status{" "}
+                    Contract Status
                   </label>
                   <select
                     className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold mt-1 text-xs outline-none"
@@ -839,68 +1595,11 @@ const AdminDashboard = ({ onLogout }) => {
           </div>
         </div>
       )}
-
-      {/* MODAL 2: EDIT STAFF SPECIFIC MAPS */}
-      {isEditModalOpen && editingStaff && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
-          <div className="bg-white w-full max-w-md rounded-[2.5rem] p-10 animate-pop-in border border-slate-100 shadow-2xl">
-            <h3 className="text-2xl font-black italic mb-6">Update Profile</h3>
-            <form onSubmit={handleEditSave} className="space-y-4">
-              <div>
-                <label className="text-[10px] font-black text-slate-400 tracking-widest uppercase ml-1">
-                  Update Full Name{" "}
-                </label>
-                <input
-                  type="text"
-                  value={editingStaff.name}
-                  onChange={(e) =>
-                    setEditingStaff({ ...editingStaff, name: e.target.value })
-                  }
-                  className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold mt-1 outline-none"
-                  required
-                />
-              </div>
-              <div>
-                <label className="text-[10px] font-black text-slate-400 tracking-widest uppercase ml-1">
-                  Update Qualification{" "}
-                </label>
-                <input
-                  type="text"
-                  value={editingStaff.qualification}
-                  onChange={(e) =>
-                    setEditingStaff({
-                      ...editingStaff,
-                      qualification: e.target.value,
-                    })
-                  }
-                  className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold mt-1 outline-none"
-                  required
-                />
-              </div>
-              <div className="flex gap-2 pt-4">
-                <button
-                  type="button"
-                  onClick={() => setIsEditModalOpen(false)}
-                  className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-xs"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 py-4 bg-blue-600 text-white rounded-2xl font-black uppercase text-xs shadow-lg shadow-blue-100"
-                >
-                  Save Changes
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
 
-// --- SUBSIDIARY SUB-COMPONENTS ---
+// --- BASE SUB-COMPONENTS ---
 const NavItem = ({ icon, label, active, onClick }) => (
   <button
     onClick={onClick}
@@ -911,7 +1610,17 @@ const NavItem = ({ icon, label, active, onClick }) => (
   </button>
 );
 
-const StatCardGraph = ({ label, value, color, bgColor }) => (
+const StatusButton = ({ current, type, onClick, label, activeColor, icon }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 transition-all duration-300 cursor-pointer ${current === type ? activeColor + " text-white shadow-md shadow-slate-200" : "text-slate-400 hover:bg-white"}`}
+  >
+    {icon} <span>{label}</span>
+  </button>
+);
+
+const StatCardGraph = ({ label, value, color, bgColor, onAnchorAction }) => (
   <div
     className={`${bgColor} p-8 rounded-[2.5rem] border border-white shadow-sm relative overflow-hidden group`}
   >
@@ -920,7 +1629,11 @@ const StatCardGraph = ({ label, value, color, bgColor }) => (
         {label}
       </p>
       <h2 className="text-4xl font-black mt-2">{value}</h2>
-      <button className="text-[9px] font-black text-blue-600 mt-4 uppercase hover:underline">
+      <button
+        type="button"
+        onClick={onAnchorAction}
+        className="text-[9px] font-black text-blue-600 mt-4 uppercase hover:underline cursor-pointer"
+      >
         View All →
       </button>
     </div>
@@ -946,6 +1659,8 @@ const DeptCard = ({ icon, label, sub, color }) => {
     blue: "bg-blue-50/60 text-blue-600",
     indigo: "bg-indigo-50/60 text-indigo-600",
     rose: "bg-rose-50/60 text-rose-600",
+    amber: "bg-amber-50/60 text-amber-600",
+    slate: "bg-slate-50 text-slate-600",
   };
   return (
     <div
@@ -970,6 +1685,30 @@ const DeptCard = ({ icon, label, sub, color }) => {
   );
 };
 
+const PaginationBar = ({ current, total, onPrev, onNext }) => (
+  <div className="p-6 bg-slate-50/50 border-t border-slate-50 flex items-center justify-between">
+    <p className="text-xs font-black text-slate-400 uppercase tracking-widest">
+      Page {current} of {total}
+    </p>
+    <div className="flex gap-2">
+      <button
+        disabled={current === 1}
+        onClick={onPrev}
+        className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-black disabled:opacity-30 transition-all cursor-pointer"
+      >
+        Previous
+      </button>
+      <button
+        disabled={current === total}
+        onClick={onNext}
+        className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-black disabled:opacity-30 transition-all cursor-pointer"
+      >
+        Next
+      </button>
+    </div>
+  </div>
+);
+
 const ProfileField = ({ label, value }) => (
   <div className="space-y-2">
     <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">
@@ -988,6 +1727,27 @@ const SettingsCard = ({ icon, title, desc }) => (
     </div>
     <h3 className="text-lg font-black text-slate-900 mb-2">{title}</h3>
     <p className="text-xs text-slate-400 font-medium leading-relaxed">{desc}</p>
+  </div>
+);
+
+// --- NEW SUBSIDIARY COMPONENT FOR THE INLINE MANAGED PROFILE RENDERING DESK ---
+const ManageFieldItem = ({ label, value, isEdit, onChange }) => (
+  <div className="space-y-1 bg-slate-50/50 p-3 rounded-2xl border border-slate-100">
+    <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider block ml-1">
+      {label}
+    </label>
+    {isEdit ? (
+      <input
+        type="text"
+        className="w-full p-2 bg-white border border-slate-200 rounded-xl font-bold text-xs text-slate-800 outline-none focus:border-blue-500"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    ) : (
+      <span className="text-xs font-bold text-slate-700 block px-2 py-1">
+        {value || "Unassigned"}
+      </span>
+    )}
   </div>
 );
 
