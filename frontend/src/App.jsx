@@ -3,10 +3,12 @@ import Landingpage from "./pages/Landingpage";
 import Login from "./pages/Login";
 import AdminDashboard from "./pages/AdminDashboard";
 import DemoPage from "./pages/Demo";
+import ReceptionPage from "./pages/ReceptionPage";
 
 export default function App() {
-  // SETTING INITIAL STATE TO 'admin' FOR IMMEDIATE ACCESS
-  const [currentPage, setCurrentPage] = useState("admin");
+  // 2. SET TO "reception" TO FORCE IMMEDIATE ACCESS IN THE BROWSER
+  // Change back to "admin" or "home" when you are ready to use the rest of the application.
+  const [currentPage, setCurrentPage] = useState("reception");
 
   const [isMaintenanceMode, setIsMaintenanceMode] = useState(false);
 
@@ -16,6 +18,11 @@ export default function App() {
 
   return (
     <>
+      {/* 3. RECEPTION PAGE CONTROLLER LAYER */}
+      {currentPage === "reception" && (
+        <ReceptionPage onLogout={handleLogout} />
+      )}
+
       {/* 1. ADMIN DASHBOARD (Now the Default Entry Point) */}
       {currentPage === "admin" && (
         <AdminDashboard
