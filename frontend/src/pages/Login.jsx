@@ -1,11 +1,14 @@
 import React, { useState, useEffect } from "react";
-import { Mail, Lock, Eye, EyeOff, ArrowLeft, ShieldCheck } from "lucide-react";
+import { Mail, Lock, Eye, EyeOff, ShieldCheck } from "lucide-react";
 
-const Login = ({ onBackClick }) => {
+const Login = ({ onLoginSuccess }) => {
   const [showPassword, setShowPassword] = useState(false);
   const [currentImg, setCurrentImg] = useState(0);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
   const images = [
     "https://images.unsplash.com/photo-1551076805-e1869033e561?auto=format&fit=crop&q=80&w=1400",
@@ -22,28 +25,33 @@ const Login = ({ onBackClick }) => {
     return () => clearInterval(timer);
   }, [images.length]);
 
-  const handleLogin = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
     setIsLoading(true);
     setError("");
 
-    // Capture the inputs from the form
-    const email = e.target.querySelector('input[type="email"]').value;
-    const password = e.target.querySelector('input[type="password"]').value;
+    try {
+      const response = await fetch(`${API_URL}/api/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+      const result = await response.json();
 
-    // Simulate API delay [cite: 94]
-    setTimeout(() => {
-      setIsLoading(false);
-
-      // DEVELOPER BYPASS: Use these credentials to enter the Admin Dashboard
-      if (email === "admin@mesra.com" && password === "admin123") {
-        console.log("Authentication Successful: Role-Based Access Granted");
-        onLoginSuccess(); // This triggers the page change to Admin Dashboard in App.jsx
-      } else {
-        // Based on doc specifications for Audit Alerts [cite: 41]
-        setError("Authentication failed. Access Denied.");
+      if (!response.ok) {
+        throw new Error(
+          result.message || "Authentication failed. Access Denied.",
+        );
       }
-    }, 1200);
+
+      localStorage.setItem("token", result.token);
+      localStorage.setItem("user", JSON.stringify(result.user));
+      onLoginSuccess(result.user);
+    } catch (error) {
+      setError(error.message);
+    } finally {
+      setIsLoading(false);
+    }
   };
   return (
     <div className="relative min-h-screen w-full flex items-center justify-center overflow-hidden font-sans">
@@ -65,17 +73,6 @@ const Login = ({ onBackClick }) => {
       ))}
 
       {/* Back Button */}
-      <button
-        onClick={onBackClick}
-        className="absolute top-8 left-8 z-50 flex items-center gap-2 text-slate-900 hover:text-white transition-all font-bold bg-white/90 hover:bg-[#2563EB] backdrop-blur-md px-6 py-3 rounded-2xl border border-white/50 shadow-xl cursor-pointer group"
-      >
-        <ArrowLeft
-          size={20}
-          className="group-hover:-translate-x-1 transition-transform"
-        />
-        <span>Back to Home</span>
-      </button>
-
       <div className="relative z-10 w-full max-w-md px-6 animate-fade-in-up">
         <div className="bg-white/95 backdrop-blur-md py-12 px-10 shadow-2xl rounded-[2.5rem] border border-white">
           <div className="text-center mb-10">
@@ -118,6 +115,8 @@ const Login = ({ onBackClick }) => {
                 <input
                   type="email"
                   required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
                   className="block w-full pl-12 pr-4 py-4 border border-slate-100 rounded-2xl focus:border-[#2563EB] focus:bg-white transition-all outline-none bg-slate-50 text-slate-900 font-bold"
                   placeholder="admin@mesra.com"
                 />
@@ -135,6 +134,8 @@ const Login = ({ onBackClick }) => {
                 <input
                   type={showPassword ? "text" : "password"}
                   required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
                   className="block w-full pl-12 pr-12 py-4 border border-slate-100 rounded-2xl focus:border-[#2563EB] focus:bg-white transition-all outline-none bg-slate-50 text-slate-900 font-bold"
                   placeholder="••••••••"
                 />

@@ -1,5 +1,4 @@
-import React, { useState } from "react";
-import Landingpage from "./pages/Landingpage";
+import React, { useEffect, useState } from "react";
 import Login from "./pages/Login";
 import AdminDashboard from "./pages/AdminDashboard";
 import DemoPage from "./pages/Demo";
@@ -13,6 +12,39 @@ export default function App() {
 
 
   const [isMaintenanceMode, setIsMaintenanceMode] = useState(false);
+  const [user, setUser] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem("user"));
+    } catch {
+      return null;
+    }
+  });
+
+  useEffect(() => {
+    const normalizedRole = user?.role?.toLowerCase?.() || "";
+    if (normalizedRole === "administrator") {
+      setCurrentPage("admin");
+    } else if (normalizedRole === "pharmacist") {
+      setCurrentPage("pharmacy");
+    } else if (user) {
+      setCurrentPage("other");
+    } else {
+      setCurrentPage("login");
+    }
+  }, [user]);
+
+  const handleLoginSuccess = (userPayload) => {
+    const normalizedRole = userPayload.role?.toLowerCase?.() || "";
+    setUser(userPayload);
+    localStorage.setItem("user", JSON.stringify(userPayload));
+    setCurrentPage(
+      normalizedRole === "administrator"
+        ? "admin"
+        : normalizedRole === "pharmacist"
+          ? "pharmacy"
+          : "other",
+    );
+  };
 
   const handleLogout = () => {
     setCurrentPage("home"); // Returns securely back to the landing page
@@ -43,6 +75,7 @@ export default function App() {
           onLogout={handleLogout}
           isMaintenanceMode={isMaintenanceMode}
           setIsMaintenanceMode={setIsMaintenanceMode}
+          user={user}
         />
       )}
 
@@ -66,6 +99,8 @@ export default function App() {
           onLoginSuccess={() => setCurrentPage("admin")}
         />
       )}
+
+      {currentPage === "login" && <Login onLoginSuccess={handleLoginSuccess} />}
     </>
   );
 }
