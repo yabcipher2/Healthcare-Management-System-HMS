@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   LineChart,
   Line,
@@ -52,33 +52,61 @@ import {
   Check,
 } from "lucide-react";
 
-// Mock Data for Sparklines & Distribution (Dashboard Architecture Metrics)
-const patientData = [
-  { day: "Mon", count: 400 },
-  { day: "Tue", count: 300 },
-  { day: "Wed", count: 500 },
-  { day: "Thu", count: 280 },
-  { day: "Fri", count: 590 },
-  { day: "Sat", count: 320 },
+// Palette for chart slices (reused cyclically for categories)
+const COLORS = [
+  "#2563EB",
+  "#10B981",
+  "#F59E0B",
+  "#EF4444",
+  "#8B5CF6",
+  "#06B6D4",
+  "#F97316",
 ];
 
-const distributionData = [
-  { name: "OPD", value: 400 },
-  { name: "Emergency", value: 300 },
-  { name: "Ward", value: 200 },
-  { name: "Lab", value: 100 },
+// Sparkline data for stat card background charts (simple daily counts)
+const generateSparklineData = () => [
+  { day: "Mon", count: 120 },
+  { day: "Tue", count: 150 },
+  { day: "Wed", count: 180 },
+  { day: "Thu", count: 160 },
+  { day: "Fri", count: 200 },
+  { day: "Sat", count: 140 },
 ];
-
-const COLORS = ["#2563EB", "#10B981", "#F59E0B", "#EF4444"];
 
 const AdminDashboard = ({
   onLogout,
   isMaintenanceMode,
   setIsMaintenanceMode,
+  user,
 }) => {
+  const isAdmin = user?.role === "Administrator";
   const [activeTab, setActiveTab] = useState("overview");
   const [systemStatus, setSystemStatus] = useState("open");
   const fileInputRef = useRef(null);
+  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+
+  const statusInstructions = {
+    open: {
+      title: "Standard Operations",
+      description:
+        "Portal access is open to all staff. Continue normal workflows and routine care delivery.",
+      style: "bg-emerald-50 text-emerald-800",
+    },
+    emergency: {
+      title: "Emergency Protocol",
+      description:
+        "Emergency mode is active. Staff should focus on urgent cases only and defer non-critical tasks.",
+      style: "bg-red-50 text-red-800",
+    },
+    closed: {
+      title: "Maintenance Mode",
+      description:
+        "Maintenance is engaged. The system is accessible to admin only; staff should follow admin guidance and avoid standard portal use.",
+      style: "bg-amber-50 text-amber-900",
+    },
+  };
+
+  const currentStatusInstruction = statusInstructions[systemStatus];
 
   // --- CONFIG BRANDING STATES ---
   const [hospitalName, setHospitalName] = useState("Mesra Digital Health");
@@ -179,92 +207,93 @@ const AdminDashboard = ({
   ];
 
   // --- STAFF STATE (Staff_Directory & Professional Profiles) ---
-  const [staffList, setStaffList] = useState([
-    {
-      id: "S-101",
-      name: "Dr. Elias Tadesse",
-      dob: "1985-05-12",
-      gender: "Male",
-      nationalId: "ET-0984",
-      phone: "+251 911 223344",
-      emergencyContact: "+251 920 112233",
-      address: "Bole, Addis Ababa",
-      profileId: "P-501",
-      jobTitle: "Doctor",
-      dept: "Cardiology",
-      yearsExp: "8",
-      qualification: "MD, Senior Surgeon",
-      certNo: "MOH-8821",
-      hireDate: "2024-01-10",
-      contractStatus: "Active",
-      avatarColor: "bg-blue-600",
-    },
-    {
-      id: "S-102",
-      name: "Nurse Hana Bekele",
-      dob: "1992-08-24",
-      gender: "Female",
-      nationalId: "ET-4432",
-      phone: "+251 912 334455",
-      emergencyContact: "+251 911 998877",
-      address: "Megenagna, Addis Ababa",
-      profileId: "P-502",
-      jobTitle: "Nurse",
-      dept: "Emergency",
-      yearsExp: "4",
-      qualification: "BSc in Nursing",
-      certNo: "MOH-4431",
-      hireDate: "2024-02-15",
-      contractStatus: "Active",
-      avatarColor: "bg-rose-500",
-    },
-  ]);
+  const [staffList, setStaffList] = useState([]);
 
   // --- PATIENTS STATE (Patients Table Spec) ---
-  const [patientsList, setPatientsList] = useState([
-    {
-      id: "PT-201",
-      name: "Yared Tolossa",
-      dob: "1990-04-15",
-      gender: "Male",
-      contactInfo: "+251 911 556677",
-      regDate: "2026-01-12",
-      insuranceProvider: "Zemen Insurance",
-      policyNumber: "ZM-99823",
-      status: "Admitted",
-      avatarColor: "bg-emerald-600",
-    },
-    {
-      id: "PT-202",
-      name: "Aster Mengesha",
-      dob: "1988-11-23",
-      gender: "Female",
-      contactInfo: "+251 912 889900",
-      regDate: "2026-02-20",
-      insuranceProvider: "Private Cash",
-      policyNumber: "N/A",
-      status: "Discharged",
-      avatarColor: "bg-purple-600",
-    },
-    {
-      id: "PT-203",
-      name: "Dawit Alamu",
-      dob: "1995-07-05",
-      gender: "Male",
-      contactInfo: "+251 920 334411",
-      regDate: "2026-03-05",
-      insuranceProvider: "Nyala Insurance",
-      policyNumber: "NY-44102",
-      status: "Triage Queue",
-      avatarColor: "bg-amber-600",
-    },
-  ]);
+  const [patientsList, setPatientsList] = useState([]);
+
+  const [isLoading, setIsLoading] = useState(false);
+
+  const normalizeStaff = (staff) => ({
+    ...staff,
+    id: staff.id || staff._id,
+    avatarColor: staff.avatarColor || "bg-slate-500",
+  });
+
+  const normalizePatient = (patient) => ({
+    ...patient,
+    id: patient.id || patient._id,
+    regDate:
+      patient.regDate ||
+      patient.createdAt?.slice(0, 10) ||
+      new Date().toISOString().split("T")[0],
+    contactInfo: patient.contactInfo || "",
+    insuranceProvider: patient.insuranceProvider || "",
+    policyNumber: patient.policyNumber || "",
+    avatarColor: patient.avatarColor || "bg-slate-500",
+  });
+
+  const getAuthHeaders = (isJson = true) => {
+    const token = localStorage.getItem("token");
+    const headers = {};
+    if (isJson) headers["Content-Type"] = "application/json";
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    return headers;
+  };
+
+  const fetchStaffData = async () => {
+    try {
+      setIsLoading(true);
+      const response = await fetch(`${API_URL}/api/staffs`, {
+        headers: getAuthHeaders(false),
+      });
+      const result = await response.json();
+      if (!response.ok)
+        throw new Error(result.message || "Unable to load staff data");
+      setStaffList(result.data.map(normalizeStaff));
+    } catch (error) {
+      alert(`Staff retrieval failed: ${error.message}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const fetchPatientData = async () => {
+    try {
+      setIsLoading(true);
+      const response = await fetch(`${API_URL}/api/patients`, {
+        headers: getAuthHeaders(false),
+      });
+      const result = await response.json();
+      if (!response.ok)
+        throw new Error(result.message || "Unable to load patient data");
+      setPatientsList(result.data.map(normalizePatient));
+    } catch (error) {
+      alert(`Patient retrieval failed: ${error.message}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchStaffData();
+    fetchPatientData();
+  }, []);
+
+  const distributionDataComputed = React.useMemo(() => {
+    const counts = {};
+    patientsList.forEach((p) => {
+      const key = p.status || "Unknown";
+      counts[key] = (counts[key] || 0) + 1;
+    });
+    return Object.entries(counts).map(([name, value]) => ({ name, value }));
+  }, [patientsList]);
 
   const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 20;
 
-  // REGISTRATION REGULAR STATE
+  // REGISTRATION STATE
   const [isRegModalOpen, setIsRegModalOpen] = useState(false);
   const [newStaff, setNewStaff] = useState({
     name: "",
@@ -282,7 +311,7 @@ const AdminDashboard = ({
     contractStatus: "Active",
   });
 
-  // --- LOGIC: PROFILE MANAGEMENT HUB INTERACTION ---
+  // --- PROFILE MANAGEMENT LOGIC HUB ---
   const launchProfileManagement = (targetProfile, type) => {
     setSelectedProfile({ ...targetProfile });
     setManagementTargetType(type);
@@ -290,46 +319,96 @@ const AdminDashboard = ({
     setIsInlineEditing(false);
   };
 
-  const saveInlineProfileChanges = () => {
-    if (managementTargetType === "staff") {
-      setStaffList(
-        staffList.map((s) =>
-          s.id === selectedProfile.id ? selectedProfile : s,
-        ),
-      );
-    } else {
-      setPatientsList(
-        patientsList.map((p) =>
-          p.id === selectedProfile.id ? selectedProfile : p,
-        ),
-      );
+  const saveInlineProfileChanges = async () => {
+    try {
+      const endpoint =
+        managementTargetType === "staff"
+          ? `${API_URL}/api/staffs/${selectedProfile.id}`
+          : `${API_URL}/api/patients/${selectedProfile.id}`;
+
+      const response = await fetch(endpoint, {
+        method: "PUT",
+        headers: getAuthHeaders(true),
+        body: JSON.stringify(selectedProfile),
+      });
+      const result = await response.json();
+      if (!response.ok)
+        throw new Error(result.message || "Unable to save profile");
+
+      const updatedProfile =
+        managementTargetType === "staff"
+          ? normalizeStaff(result.data)
+          : normalizePatient(result.data);
+
+      if (managementTargetType === "staff") {
+        setStaffList(
+          staffList.map((s) =>
+            s.id === updatedProfile.id ? updatedProfile : s,
+          ),
+        );
+      } else {
+        setPatientsList(
+          patientsList.map((p) =>
+            p.id === updatedProfile.id ? updatedProfile : p,
+          ),
+        );
+      }
+
+      setSelectedProfile(updatedProfile);
+      setIsInlineEditing(false);
+      alert("Database Synced: Internal modifications committed permanently.");
+    } catch (error) {
+      alert(`Save failed: ${error.message}`);
     }
-    setIsInlineEditing(false);
-    alert("Database Synced: Internal modifications committed permanently.");
   };
 
-  const toggleStatusActivation = () => {
-    let targetNewStatus = "";
-    if (managementTargetType === "staff") {
-      targetNewStatus =
-        selectedProfile.contractStatus === "Active" ? "Inactive" : "Active";
-      const updated = { ...selectedProfile, contractStatus: targetNewStatus };
+  const toggleStatusActivation = async () => {
+    try {
+      let targetNewStatus = "";
+      let updatePayload = {};
+
+      if (managementTargetType === "staff") {
+        targetNewStatus =
+          selectedProfile.contractStatus === "Active" ? "Inactive" : "Active";
+        updatePayload = { contractStatus: targetNewStatus };
+      } else {
+        targetNewStatus =
+          selectedProfile.status === "Archived" ? "Admitted" : "Archived";
+        updatePayload = { status: targetNewStatus };
+      }
+
+      const endpoint =
+        managementTargetType === "staff"
+          ? `${API_URL}/api/staffs/${selectedProfile.id}`
+          : `${API_URL}/api/patients/${selectedProfile.id}`;
+
+      const response = await fetch(endpoint, {
+        method: "PUT",
+        headers: getAuthHeaders(true),
+        body: JSON.stringify(updatePayload),
+      });
+      const result = await response.json();
+      if (!response.ok)
+        throw new Error(result.message || "Unable to update status");
+
+      const updated =
+        managementTargetType === "staff"
+          ? normalizeStaff(result.data)
+          : normalizePatient(result.data);
+
       setSelectedProfile(updated);
-      setStaffList(
-        staffList.map((s) => (s.id === selectedProfile.id ? updated : s)),
-      );
-    } else {
-      targetNewStatus =
-        selectedProfile.status === "Archived" ? "Admitted" : "Archived";
-      const updated = { ...selectedProfile, status: targetNewStatus };
-      setSelectedProfile(updated);
-      setPatientsList(
-        patientsList.map((p) => (p.id === selectedProfile.id ? updated : p)),
-      );
+      if (managementTargetType === "staff") {
+        setStaffList(staffList.map((s) => (s.id === updated.id ? updated : s)));
+      } else {
+        setPatientsList(
+          patientsList.map((p) => (p.id === updated.id ? updated : p)),
+        );
+      }
+    } catch (error) {
+      alert(`Status update failed: ${error.message}`);
     }
   };
 
-  // --- BASE LOGIC FLOWS ---
   const triggerTelemetryRefresh = () => {
     setLastSyncTime(new Date().toLocaleTimeString());
     setSystemHealth((95 + Math.random() * 5).toFixed(1) + "%");
@@ -347,16 +426,28 @@ const AdminDashboard = ({
     setIsMaintenanceMode(status === "closed");
   };
 
-  const handleRegisterSave = (e) => {
+  const getRandomAvatarColor = () => {
+    const colors = [
+      "bg-blue-600",
+      "bg-rose-500",
+      "bg-emerald-600",
+      "bg-purple-600",
+      "bg-slate-500",
+    ];
+    return colors[Math.floor(Math.random() * colors.length)];
+  };
+
+  const handleRegisterSave = async (e) => {
     e.preventDefault();
     const nextIdNumber = staffList.length + 101;
     const createdStaff = {
       id: `S-${nextIdNumber}`,
+      staffId: `STAFF-${nextIdNumber}`,
       profileId: `P-${nextIdNumber + 400}`,
       name: newStaff.name,
       dob: newStaff.dob,
       gender: newStaff.gender,
-      nationalId: newStaff.nationalId,
+      nationalId: newStaff.nationalId || `NID-${nextIdNumber}`,
       phone: newStaff.phone,
       emergencyContact: newStaff.emergencyContact,
       address: newStaff.address,
@@ -365,28 +456,43 @@ const AdminDashboard = ({
       yearsExp: newStaff.yearsExp,
       qualification: newStaff.qualification,
       certNo: newStaff.certNo,
+      certificationNo: `CERT-${nextIdNumber}`,
       hireDate: new Date().toISOString().split("T")[0],
       contractStatus: newStaff.contractStatus,
-      avatarColor: "bg-blue-600",
+      avatarColor: getRandomAvatarColor(),
     };
-    setStaffList([createdStaff, ...staffList]);
-    setIsRegModalOpen(false);
-    setNewStaff({
-      name: "",
-      dob: "",
-      gender: "Male",
-      nationalId: "",
-      phone: "",
-      emergencyContact: "",
-      address: "",
-      jobTitle: "Doctor",
-      dept: "General",
-      yearsExp: "",
-      qualification: "",
-      certNo: "",
-      contractStatus: "Active",
-    });
-    setCurrentPage(1);
+
+    try {
+      const response = await fetch(`${API_URL}/api/staffs`, {
+        method: "POST",
+        headers: getAuthHeaders(true),
+        body: JSON.stringify(createdStaff),
+      });
+      const result = await response.json();
+      if (!response.ok)
+        throw new Error(result.message || "Unable to create staff record");
+
+      setStaffList([normalizeStaff(result.data), ...staffList]);
+      setIsRegModalOpen(false);
+      setNewStaff({
+        name: "",
+        dob: "",
+        gender: "Male",
+        nationalId: "",
+        phone: "",
+        emergencyContact: "",
+        address: "",
+        jobTitle: "Doctor",
+        dept: "General",
+        yearsExp: "",
+        qualification: "",
+        certNo: "",
+        contractStatus: "Active",
+      });
+      setCurrentPage(1);
+    } catch (error) {
+      alert(`Create staff failed: ${error.message}`);
+    }
   };
 
   const handleDeptToggle = () => {
@@ -477,19 +583,13 @@ const AdminDashboard = ({
               icon={<UserCog />}
               label="Profile"
               active={activeTab === "profile" && !isManagementActive}
-              onClick={() => {
-                setActiveTab("profile");
-                setIsManagementActive(false);
-              }}
+              onClick={() => setActiveTab("profile")}
             />
             <NavItem
               icon={<Settings />}
               label="Settings"
               active={activeTab === "settings" && !isManagementActive}
-              onClick={() => {
-                setActiveTab("settings");
-                setIsManagementActive(false);
-              }}
+              onClick={() => setActiveTab("settings")}
             />
           </nav>
         </div>
@@ -503,7 +603,6 @@ const AdminDashboard = ({
 
       {/* CONTAINER HUB */}
       <main className="flex-1 ml-72 p-8">
-        {/* RENDER DETAILED MANAGED PROFILE PORTAL INSTEAD OF STANDARD DIRECTORY PARAMS WHEN TRIGGERED */}
         {isManagementActive ? (
           <div className="animate-fade-in-up space-y-6 max-w-4xl mx-auto">
             {/* Nav Header Row */}
@@ -532,15 +631,7 @@ const AdminDashboard = ({
                 )}
                 <button
                   onClick={toggleStatusActivation}
-                  className={`px-5 py-3 rounded-xl font-black text-xs uppercase tracking-widest cursor-pointer shadow-md transition-all ${
-                    (
-                      managementTargetType === "staff"
-                        ? selectedProfile.contractStatus === "Active"
-                        : selectedProfile.status !== "Archived"
-                    )
-                      ? "bg-red-50 text-red-600 hover:bg-red-100"
-                      : "bg-emerald-50 text-emerald-600 hover:bg-emerald-100"
-                  }`}
+                  className={`px-5 py-3 rounded-xl font-black text-xs uppercase tracking-widest cursor-pointer shadow-md transition-all ${(managementTargetType === "staff" ? selectedProfile.contractStatus === "Active" : selectedProfile.status !== "Archived") ? "bg-red-50 text-red-600 hover:bg-red-100" : "bg-emerald-50 text-emerald-600 hover:bg-emerald-100"}`}
                 >
                   {managementTargetType === "staff"
                     ? selectedProfile.contractStatus === "Active"
@@ -553,9 +644,8 @@ const AdminDashboard = ({
               </div>
             </div>
 
-            {/* Dossier Card Sheet Layout Layout */}
+            {/* Dossier Card Sheet Layout */}
             <div className="bg-white rounded-[2.5rem] border border-slate-100 p-8 shadow-sm grid md:grid-cols-3 gap-8">
-              {/* Photo Area Section */}
               <div className="text-center md:border-r border-slate-50 md:pr-8 flex flex-col justify-center">
                 <div
                   className={`w-36 h-36 ${selectedProfile.avatarColor || "bg-blue-600"} rounded-[2.5rem] flex items-center justify-center text-white text-5xl font-black mx-auto mb-4 shadow-xl border-4 border-white`}
@@ -570,15 +660,7 @@ const AdminDashboard = ({
                 </p>
                 <div className="mt-4">
                   <span
-                    className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                      (
-                        managementTargetType === "staff"
-                          ? selectedProfile.contractStatus === "Active"
-                          : selectedProfile.status !== "Archived"
-                      )
-                        ? "bg-emerald-100 text-emerald-600"
-                        : "bg-slate-100 text-slate-500"
-                    }`}
+                    className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider ${(managementTargetType === "staff" ? selectedProfile.contractStatus === "Active" : selectedProfile.status !== "Archived") ? "bg-emerald-100 text-emerald-600" : "bg-slate-100 text-slate-500"}`}
                   >
                     {managementTargetType === "staff"
                       ? selectedProfile.contractStatus
@@ -587,13 +669,11 @@ const AdminDashboard = ({
                 </div>
               </div>
 
-              {/* Data Specifications Field Readouts Block */}
               <div className="md:col-span-2 space-y-6">
                 <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 border-b pb-1">
                   Relational Database Metadata Dossier
                 </h3>
                 <div className="grid grid-cols-2 gap-x-6 gap-y-4">
-                  {/* Inline Conditionals for modifying variables directly on the page layout */}
                   <ManageFieldItem
                     label="Full Name"
                     value={selectedProfile.name}
@@ -652,7 +732,7 @@ const AdminDashboard = ({
                         }
                       />
                       <ManageFieldItem
-                        label="Assigned System Title"
+                        label="Assigned Title"
                         value={selectedProfile.jobTitle}
                         isEdit={isInlineEditing}
                         onChange={(val) =>
@@ -756,11 +836,24 @@ const AdminDashboard = ({
             </div>
           </div>
         ) : (
-          /* STANDARD FALLBACK RENDERS WHEN THE VIEW DOSSIER HOOK IS RESTED */
           <>
             {/* TAB 1: OVERVIEW HUB */}
             {activeTab === "overview" && (
               <div className="space-y-8 animate-fade-in-up">
+                {/* Banners */}
+                {systemStatus === "emergency" && (
+                  <div className="bg-red-500 text-white font-black uppercase text-xs tracking-widest p-4 rounded-2xl flex items-center gap-3 animate-pulse">
+                    <Flame size={18} /> Critical Alert: System running on
+                    Emergency Protocol mode. High-Risk Triage routing active.
+                  </div>
+                )}
+                {systemStatus === "closed" && (
+                  <div className="bg-amber-500 text-slate-900 font-black uppercase text-xs tracking-widest p-4 rounded-2xl flex items-center gap-3">
+                    <AlertCircle size={18} /> Notice: Infrastructure Maintenance
+                    Window Engaged. Public portal lines disconnected.
+                  </div>
+                )}
+
                 <header className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm flex flex-col md:flex-row justify-between items-center gap-6">
                   <div className="flex items-center gap-6">
                     <div className="w-20 h-20 bg-blue-600 rounded-3xl overflow-hidden flex items-center justify-center text-white text-3xl font-black">
@@ -821,6 +914,19 @@ const AdminDashboard = ({
                     />
                   </div>
                 </header>
+
+                <div
+                  className={`bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm mt-6 ${currentStatusInstruction.style}`}
+                >
+                  <div className="flex items-center gap-3 mb-3">
+                    <span className="text-xs font-black uppercase tracking-widest">
+                      {currentStatusInstruction.title}
+                    </span>
+                  </div>
+                  <p className="text-sm font-bold leading-6">
+                    {currentStatusInstruction.description}
+                  </p>
+                </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                   <StatCardGraph
@@ -884,48 +990,60 @@ const AdminDashboard = ({
                       Patient Distribution
                     </h3>
                     <div className="h-64 w-full flex items-center justify-center">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <PieChart>
-                          <Pie
-                            data={distributionData}
-                            innerRadius={65}
-                            outerRadius={90}
-                            paddingAngle={5}
-                            dataKey="value"
-                          >
-                            {distributionData.map((entry, index) => (
-                              <Cell
-                                key={`cell-${index}`}
-                                fill={COLORS[index % COLORS.length]}
-                              />
-                            ))}
-                          </Pie>
-                          <Tooltip />
-                        </PieChart>
-                      </ResponsiveContainer>
-                    </div>
-                    <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-left mt-6 w-full px-4 border-t pt-6 border-slate-50">
-                      {distributionData.map((d, i) => (
-                        <div
-                          key={i}
-                          className="flex items-center gap-2 text-xs font-bold text-slate-600"
-                        >
-                          <div
-                            className="w-2.5 h-2.5 rounded-full"
-                            style={{ backgroundColor: COLORS[i] }}
-                          />
-                          <span>
-                            {d.name}: {d.value}
-                          </span>
+                      {distributionDataComputed.length ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie
+                              data={distributionDataComputed}
+                              innerRadius={65}
+                              outerRadius={90}
+                              paddingAngle={5}
+                              dataKey="value"
+                            >
+                              {distributionDataComputed.map((entry, index) => (
+                                <Cell
+                                  key={`cell-${index}`}
+                                  fill={COLORS[index % COLORS.length]}
+                                />
+                              ))}
+                            </Pie>
+                            <Tooltip />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <div className="flex items-center justify-center h-full">
+                          <div className="text-sm text-slate-400 font-bold">
+                            No patient distribution data available
+                          </div>
                         </div>
-                      ))}
+                      )}
                     </div>
+                    {distributionDataComputed.length > 0 && (
+                      <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-left mt-6 w-full px-4 border-t pt-6 border-slate-50">
+                        {distributionDataComputed.map((d, i) => (
+                          <div
+                            key={i}
+                            className="flex items-center gap-2 text-xs font-bold text-slate-600"
+                          >
+                            <div
+                              className="w-2.5 h-2.5 rounded-full"
+                              style={{
+                                backgroundColor: COLORS[i % COLORS.length],
+                              }}
+                            />
+                            <span>
+                              {d.name}: {d.value}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
             )}
 
-            {/* TAB 2: STAFF DIRECTORY VIEW */}
+            {/* TAB 2: STAFF DIRECTORY */}
             {activeTab === "staff" && (
               <div className="animate-fade-in-up space-y-6">
                 <div className="flex justify-between items-end">
@@ -1009,7 +1127,6 @@ const AdminDashboard = ({
                                 {staff.contractStatus}
                               </span>
                             </td>
-                            {/* FIXED ACTION CONTROL DELEGATE: REPLACED CRUDE CRUD WITH THE MANAGE PANEL ROUTE ACTION BUTTON */}
                             <td className="p-6 text-right">
                               <button
                                 onClick={() =>
@@ -1035,7 +1152,7 @@ const AdminDashboard = ({
               </div>
             )}
 
-            {/* TAB 3: PATIENT REGISTRY VIEW */}
+            {/* TAB 3: PATIENT REGISTRY */}
             {activeTab === "patients" && (
               <div className="animate-fade-in-up space-y-6">
                 <div>
@@ -1069,7 +1186,7 @@ const AdminDashboard = ({
                           <th className="p-6">Contact Line</th>
                           <th className="p-6">Registration Date</th>
                           <th className="p-6">Insurance Carrier</th>
-                          <th className="p-6">Triage Load</th>
+                          <th className="p-6">Triage Status</th>
                           <th className="p-6 text-right">Actions</th>
                         </tr>
                       </thead>
@@ -1110,7 +1227,6 @@ const AdminDashboard = ({
                                 {patient.status}
                               </span>
                             </td>
-                            {/* FIXED PASSTHROUGH TO DEDICATED INDIVIDUAL MANAGEMENT VIEW FOR THE PATIENT MAP SCHEMA */}
                             <td className="p-6 text-right">
                               <button
                                 onClick={() =>
@@ -1169,7 +1285,7 @@ const AdminDashboard = ({
               </div>
             )}
 
-            {/* TAB 5: SYSTEM CONFIGURATION SETTINGS */}
+            {/* TAB 5: SETTINGS */}
             {activeTab === "settings" && (
               <div className="max-w-4xl mx-auto animate-fade-in-up space-y-8">
                 <h1 className="text-4xl font-black text-slate-900 italic">
@@ -1201,7 +1317,7 @@ const AdminDashboard = ({
                         <img
                           src={hospitalLogo}
                           className="w-10 h-10 object-contain rounded-lg shadow-sm"
-                          alt="Hospital Logo"
+                          alt="Logo"
                         />
                       )}
                       <p className="text-[10px] font-black text-slate-400 uppercase tracking-wide">
@@ -1282,7 +1398,7 @@ const AdminDashboard = ({
                       <button
                         type="button"
                         onClick={triggerTelemetryRefresh}
-                        className="w-full py-3.5 bg-slate-900 hover:bg-slate-800 text-white font-black uppercase text-[10px] tracking-widest rounded-xl transition-all flex items-center justify-center gap-2 mt-2 cursor-pointer shadow-md"
+                        className="w-full py-3.5 bg-slate-900 hover:bg-slate-800 text-white font-black uppercase text-[10px] tracking-widest rounded-xl flex items-center justify-center gap-2 mt-2 cursor-pointer shadow-md"
                       >
                         <RefreshCw size={12} /> Run Framework Cache Refresh
                       </button>
@@ -1296,31 +1412,49 @@ const AdminDashboard = ({
                         <Shield size={14} className="text-blue-500" /> System
                         Guard Gates
                       </h3>
-                      <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-100">
-                        <div>
-                          <span className="text-xs font-black block">
-                            Maintenance Gate
-                          </span>
-                          <span className="text-[10px] text-slate-400 font-bold block uppercase mt-0.5">
-                            {isMaintenanceMode
-                              ? "Locked to non-admins"
-                              : "Portal Network Live"}
-                          </span>
+                      {isAdmin ? (
+                        <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-100">
+                          <div>
+                            <span className="text-xs font-black block">
+                              Maintenance Gate
+                            </span>
+                            <span className="text-[10px] text-slate-400 font-bold block uppercase mt-0.5">
+                              {isMaintenanceMode
+                                ? "Admin-only access while maintenance is active"
+                                : "Open to staff and admin users"}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const updatedState = !isMaintenanceMode;
+                              setIsMaintenanceMode(updatedState);
+                              setSystemStatus(updatedState ? "closed" : "open");
+                            }}
+                            className={`w-12 h-6 rounded-full transition-colors relative ${isMaintenanceMode ? "bg-amber-500" : "bg-slate-200"}`}
+                          >
+                            <div
+                              className={`w-4 h-4 bg-white rounded-full absolute top-1 transition-all ${isMaintenanceMode ? "right-1" : "left-1"}`}
+                            />
+                          </button>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const updatedState = !isMaintenanceMode;
-                            setIsMaintenanceMode(updatedState);
-                            setSystemStatus(updatedState ? "closed" : "open");
-                          }}
-                          className={`w-12 h-6 rounded-full transition-colors relative cursor-pointer ${isMaintenanceMode ? "bg-amber-500" : "bg-slate-200"}`}
-                        >
-                          <div
-                            className={`w-4 h-4 bg-white rounded-full absolute top-1 transition-all ${isMaintenanceMode ? "right-1" : "left-1"}`}
-                          />
-                        </button>
-                      </div>
+                      ) : (
+                        <div className="flex flex-col gap-2 p-4 bg-slate-50 rounded-xl border border-slate-100">
+                          <div>
+                            <span className="text-xs font-black block">
+                              Maintenance Gate
+                            </span>
+                            <span className="text-[10px] text-slate-400 font-bold block uppercase mt-0.5">
+                              Only administrators may view or change maintenance
+                              mode.
+                            </span>
+                          </div>
+                          <div className="text-[10px] text-slate-500 italic">
+                            Please contact an administrator to enable or disable
+                            maintenance access.
+                          </div>
+                        </div>
+                      )}
                       <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-100">
                         <div>
                           <span className="text-xs font-black block">
@@ -1349,7 +1483,7 @@ const AdminDashboard = ({
         )}
       </main>
 
-      {/* REGISTRATION MODAL WITH DUAL-TABLE SCHEMAS */}
+      {/* REGISTRATION MODAL */}
       {isRegModalOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 overflow-y-auto">
           <div className="bg-white w-full max-w-2xl rounded-[2.5rem] p-8 animate-pop-in border border-slate-100 shadow-2xl relative my-auto">
@@ -1490,11 +1624,17 @@ const AdminDashboard = ({
                       setNewStaff({ ...newStaff, jobTitle: e.target.value })
                     }
                   >
+                    <option>Administrator</option>
                     <option>Doctor</option>
                     <option>Nurse</option>
                     <option>Lab Tech</option>
                     <option>Receptionist</option>
                     <option>Cashier</option>
+                    <option>Pharmacist</option>
+                    <option>Store Manager</option>
+                    <option>Ward</option>
+                    <option>Triage</option>
+                    <option>Radiology</option>
                   </select>
                 </div>
                 <div>
@@ -1639,7 +1779,7 @@ const StatCardGraph = ({ label, value, color, bgColor, onAnchorAction }) => (
     </div>
     <div className="absolute inset-0 top-12 opacity-20 group-hover:opacity-40 transition-opacity pointer-events-none">
       <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={patientData}>
+        <LineChart data={generateSparklineData()}>
           <Line
             type="monotone"
             dataKey="count"
@@ -1730,7 +1870,6 @@ const SettingsCard = ({ icon, title, desc }) => (
   </div>
 );
 
-// --- NEW SUBSIDIARY COMPONENT FOR THE INLINE MANAGED PROFILE RENDERING DESK ---
 const ManageFieldItem = ({ label, value, isEdit, onChange }) => (
   <div className="space-y-1 bg-slate-50/50 p-3 rounded-2xl border border-slate-100">
     <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider block ml-1">

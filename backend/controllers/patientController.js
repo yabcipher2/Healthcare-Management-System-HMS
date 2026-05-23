@@ -1,37 +1,61 @@
-const PatientRecord = require('../models/PatientRecord');
+const PatientRecord = require("../models/PatientRecord");
 
-// Create a patient record (Receptionist role action)
-exports.registerPatient = async (req, res, next) => {
+// @desc    Register Patient & Save to DB
+// @route   POST /api/patients
+const registerPatient = async (req, res) => {
   try {
-    const patient = await PatientRecord.create(req.body);
-    res.status(201).json({ success: true, data: patient });
-  } catch (error) { next(error); }
+    const { name, age, gender, condition, treatmentPlan, status } = req.body;
+    const newRecord = await PatientRecord.create({
+      name,
+      age,
+      gender,
+      condition,
+      treatmentPlan,
+      status,
+    });
+    res
+      .status(201)
+      .json({
+        success: true,
+        message: "Synchronized to database.",
+        data: newRecord,
+      });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
 };
 
-// Update record dynamically based on clinic routing status
-exports.updatePatientWorkflow = async (req, res, next) => {
+// @desc    Fetch Real-time Records for Dashboard Widgets
+// @route   GET /api/patients
+const fetchRecords = async (req, res) => {
   try {
-    const patient = await PatientRecord.findById(req.params.id);
-    if (!patient) {
-      res.status(404);
-      throw new Error('Medical Record target identity mismatch');
-    }
+    const records = await PatientRecord.find({}).sort({ createdAt: -1 });
+    res
+      .status(200)
+      .json({ success: true, count: records.length, data: records });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
 
-    // Explicit payload property parsing or tracking can go here
-    const updatedPatient = await PatientRecord.findByIdAndUpdate(
+// @desc    Modify Patient Workflow State
+// @route   PUT /api/patients/:id
+const modifyWorkflow = async (req, res) => {
+  try {
+    const updatedRecord = await PatientRecord.findByIdAndUpdate(
       req.params.id,
-      { $set: req.body },
-      { new: true, runValidators: true }
+      req.body,
+      { new: true, runValidators: true },
     );
-
-    res.json({ success: true, data: updatedPatient });
-  } catch (error) { next(error); }
+    if (!updatedRecord) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Record not found." });
+    }
+    res.status(200).json({ success: true, data: updatedRecord });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
 };
 
-// View all clinical track list
-exports.getPatientRecords = async (req, res, next) => {
-  try {
-    const patients = await PatientRecord.find({});
-    res.json({ success: true, count: patients.length, data: patients });
-  } catch (error) { next(error); }
-};
+module.exports = { registerPatient, fetchRecords, modifyWorkflow };
