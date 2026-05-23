@@ -5,12 +5,12 @@ import DemoPage from "./pages/Demo";
 import ReceptionPage from "./pages/ReceptionPage";
 import TriagePage from "./pages/TriagePage";
 import DoctorPage from "./pages/DoctorPage";
+import LaboratoryPage from "./pages/LaboratoryPage";
 
 export default function App() {
   // 1. FORCED ROUTING CONTROLLER
-  // Set to "reception", "triage", "doctor", "admin", or "home" to immediately jump to that screen.
-  const [currentPage, setCurrentPage] = useState("doctor"); // Default to triage for development testing
-
+  // Set to "reception", "triage", "doctor", "pharmacy", "laboratory", "admin", or "home" to immediately jump to that screen.
+  const [currentPage, setCurrentPage] = useState("laboratory"); // Default to doctor for development testing
 
   const [isMaintenanceMode, setIsMaintenanceMode] = useState(false);
   const [user, setUser] = useState(() => {
@@ -52,8 +52,17 @@ export default function App() {
   };
 
   // 2. FALLBACK PROTECTION ENGINE
-  // Defines all explicitly mapped page strings
-  const validPages = ["reception", "triage", "doctor", "admin", "home", "demo", "login"];
+  // Defines all explicitly mapped page strings including pharmacy and laboratory additions
+  const validPages = [
+    "reception", 
+    "triage", 
+    "doctor", 
+    "laboratory",
+    "admin", 
+    "home", 
+    "demo", 
+    "login"
+  ];
   
   // If a non-existent state or type mismatch happens, safely force render back to landing home view
   const activeView = validPages.includes(currentPage) ? currentPage : "home";
@@ -73,6 +82,11 @@ export default function App() {
       {/* 5. DOCTOR CONSULTATION ROOM INTERFACE */}
       {activeView === "doctor" && (
         <DoctorPage onLogout={handleLogout} />
+      )}
+
+      {/* 5.6 LABORATORY DIAGNOSTICS DECK */}
+      {activeView === "laboratory" && (
+        <LaboratoryPage onLogout={handleLogout} />
       )}
 
       {/* 6. ADMIN SECURITY LAYER */}
