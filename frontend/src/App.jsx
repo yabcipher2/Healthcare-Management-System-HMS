@@ -5,11 +5,12 @@ import AdminDashboard from "./pages/AdminDashboard";
 import DemoPage from "./pages/Demo";
 import ReceptionPage from "./pages/ReceptionPage";
 import TriagePage from "./pages/TriagePage";
+import DoctorPage from "./pages/DoctorPage";
 
 export default function App() {
   // 1. FORCED ROUTING CONTROLLER
   // Set to "reception", "triage", "doctor", "admin", or "home" to immediately jump to that screen.
-  const [currentPage, setCurrentPage] = useState("triage"); // Default to triage for development testing
+  const [currentPage, setCurrentPage] = useState("doctor"); // Default to triage for development testing
 
 
   const [isMaintenanceMode, setIsMaintenanceMode] = useState(false);
@@ -20,7 +21,7 @@ export default function App() {
 
   // 2. FALLBACK PROTECTION ENGINE
   // Defines all explicitly mapped page strings
-  const validPages = ["reception", "triage", "admin", "home", "demo", "login"];
+  const validPages = ["reception", "triage", "doctor", "admin", "home", "demo", "login"];
   
   // If a non-existent state or type mismatch happens, safely force render back to landing home view
   const activeView = validPages.includes(currentPage) ? currentPage : "home";
@@ -35,6 +36,11 @@ export default function App() {
       {/* 4. TRIAGE CLINICAL STATION SCREEN */}
       {activeView === "triage" && (
         <TriagePage onLogout={handleLogout} />
+      )}
+
+      {/* 5. DOCTOR CONSULTATION ROOM INTERFACE */}
+      {activeView === "doctor" && (
+        <DoctorPage onLogout={handleLogout} />
       )}
 
       {/* 6. ADMIN SECURITY LAYER */}
