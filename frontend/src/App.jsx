@@ -6,12 +6,13 @@ import DemoPage from "./pages/Demo";
 import ReceptionPage from "./pages/ReceptionPage";
 import TriagePage from "./pages/TriagePage";
 import DoctorPage from "./pages/DoctorPage";
+import PharmacyPage from "./pages/PharmacyPage";
 import LaboratoryPage from "./pages/LaboratoryPage";
 
 export default function App() {
   // 1. FORCED ROUTING CONTROLLER
   // Set to "reception", "triage", "doctor", "pharmacy", "laboratory", "admin", or "home" to immediately jump to that screen.
-  const [currentPage, setCurrentPage] = useState("laboratory"); // Default to doctor for development testing
+  const [currentPage, setCurrentPage] = useState("reception"); // Default to pharmacy for development testing
 
   const [isMaintenanceMode, setIsMaintenanceMode] = useState(false);
 
@@ -25,6 +26,7 @@ export default function App() {
     "reception", 
     "triage", 
     "doctor", 
+    "pharmacy",
     "laboratory",
     "admin", 
     "home", 
@@ -50,6 +52,11 @@ export default function App() {
       {/* 5. DOCTOR CONSULTATION ROOM INTERFACE */}
       {activeView === "doctor" && (
         <DoctorPage onLogout={handleLogout} />
+      )}
+
+      {/* 5.5 PHARMACY AND DISPENSING DEPOT */}
+      {activeView === "pharmacy" && (
+        <PharmacyPage onLogout={handleLogout} />
       )}
 
       {/* 5.6 LABORATORY DIAGNOSTICS DECK */}
