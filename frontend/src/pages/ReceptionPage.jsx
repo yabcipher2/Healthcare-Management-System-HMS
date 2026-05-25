@@ -115,6 +115,7 @@ export default function PatientManagementSystem() {
 
   const [formData, setFormData] = useState(initialFormState);
   const [formErrors, setFormErrors] = useState({});
+  const hospitalLogo = "/mesra icon.png";
 
   // Automatically update and handle fallback live internet system date/time
   useEffect(() => {
@@ -236,28 +237,22 @@ export default function PatientManagementSystem() {
   });
 
   return (
-    <div className="flex min-h-screen bg-slate-950 text-slate-100 font-sans antialiased">
+    <div className="flex min-h-screen bg-slate-50 text-slate-900 font-sans antialiased">
       
       {/* ==========================================
           LEFT ADMINISTRATIVE SIDEBAR NAVIGATION
           ========================================== */}
-      <aside className="w-72 bg-[#081018] border-r border-slate-800 flex flex-col justify-between shrink-0 z-30">
+      <aside className="w-72 bg-white border-r border-slate-200 flex flex-col justify-between shrink-0 z-30">
         <div>
           {/* Branded Logo Assembly Area */}
-          <div className="p-6 border-b border-slate-800/80 flex items-center gap-3.5">
-            <div className="relative w-11 h-11 flex items-center justify-center">
-              {/* Custom Overlapping Stethoscope Contours */}
-              <div className="absolute inset-0 border-[3px] border-blue-600 rounded-full scale-95 border-t-transparent flex items-center justify-center">
-                <div className="w-6 h-6 border-[2.5px] border-cyan-400 rounded-full border-b-transparent transform -rotate-45"></div>
-              </div>
-              <div className="w-2.5 h-2.5 bg-blue-400 rounded-full z-10 animate-pulse"></div>
-            </div>
+          <div className="p-6 border-b border-slate-200 flex items-center gap-3.5">
+            <img src={hospitalLogo} alt="Mesra Logo" className="w-10 h-10 object-contain rounded-xl" />
             <div>
               <div className="flex items-center gap-1">
-                <span className="font-black text-lg tracking-wider text-white">MESRA</span>
+                <span className="font-black text-lg tracking-wider text-slate-900">MESRA</span>
                 <span className="font-bold text-[10px] uppercase tracking-widest bg-blue-600 px-1.5 py-0.5 rounded text-white font-mono">DIGITAL</span>
               </div>
-              <p className="text-[10px] text-slate-400 font-mono tracking-tight">Enterprise Health Platform</p>
+              <p className="text-[10px] text-slate-500 font-mono tracking-tight">Enterprise Health Platform</p>
             </div>
           </div>
 
@@ -308,7 +303,7 @@ export default function PatientManagementSystem() {
       <div className="flex-1 flex flex-col min-w-0">
         
         {/* Universal Sub-Header Row */}
-        <header className="bg-[#0D1925]/40 backdrop-blur-md border-b border-slate-800/60 sticky top-0 px-8 py-4 z-20 flex justify-between items-center">
+        <header className="bg-white/90 backdrop-blur-md border-b border-slate-200 sticky top-0 px-8 py-4 z-20 flex justify-between items-center">
           <div>
             <h1 className="text-base font-bold tracking-wider text-white uppercase font-mono">
               {activeTab === 'dashboard' && "System Analytics Dashboard"}
@@ -337,11 +332,11 @@ export default function PatientManagementSystem() {
                   { label: 'Active Inpatient (IPD)', value: '124', change: '+2.1%', color: 'border-l-amber-500' },
                   { label: 'Emergency Admissions', value: '516', change: '+22.4%', color: 'border-l-rose-500' },
                 ].map((card, idx) => (
-                  <div key={idx} className={`bg-[#0D1925] border border-slate-800/80 p-5 rounded-2xl border-l-4 ${card.color} flex flex-col justify-between shadow-lg`}>
-                    <span className="text-[10px] font-black text-slate-400 tracking-wider uppercase">{card.label}</span>
+                  <div key={idx} className={`bg-white border border-slate-200 p-5 rounded-2xl border-l-4 ${card.color} flex flex-col justify-between shadow-sm`}>
+                    <span className="text-[10px] font-black text-slate-500 tracking-wider uppercase">{card.label}</span>
                     <div className="flex items-baseline justify-between mt-3">
-                      <span className="text-3xl font-black tracking-tight text-white font-mono">{card.value}</span>
-                      <span className="text-[11px] text-emerald-400 font-bold flex items-center gap-0.5"><TrendingUp size={12}/>{card.change}</span>
+                      <span className="text-3xl font-black tracking-tight text-slate-900 font-mono">{card.value}</span>
+                      <span className="text-[11px] text-emerald-600 font-bold flex items-center gap-0.5"><TrendingUp size={12}/>{card.change}</span>
                     </div>
                   </div>
                 ))}
@@ -351,7 +346,7 @@ export default function PatientManagementSystem() {
               <div className="grid lg:grid-cols-12 gap-6">
                 
                 {/* Visual Chart Placeholder Block */}
-                <div className="lg:col-span-8 bg-[#0D1925] border border-slate-800 rounded-3xl p-6 shadow-xl">
+                <div className="lg:col-span-8 bg-white border border-slate-200 rounded-3xl p-6 shadow-sm">
                   <div className="flex justify-between items-center mb-6">
                     <h3 className="font-bold text-sm text-white flex items-center gap-2 uppercase tracking-wider"><BarChart3 size={15} className="text-blue-500" /> Hourly Registration Flux</h3>
                     <span className="text-[10px] bg-slate-800 text-slate-400 px-2.5 py-1 rounded-md font-mono">Sync Interval: Realtime</span>
@@ -378,7 +373,7 @@ export default function PatientManagementSystem() {
                 </div>
 
                 {/* Queue Tiers Block */}
-                <div className="lg:col-span-4 bg-[#0D1925] border border-slate-800 rounded-3xl p-6 shadow-xl flex flex-col justify-between">
+                <div className="lg:col-span-4 bg-white border border-slate-200 rounded-3xl p-6 shadow-sm flex flex-col justify-between">
                   <div>
                     <h3 className="font-bold text-sm text-white uppercase tracking-wider mb-2">Regional Station Triage Status</h3>
                     <p className="text-[11px] text-slate-400 mb-6">Current allocation distribution metrics inside localized processing slots.</p>
@@ -410,7 +405,7 @@ export default function PatientManagementSystem() {
           {activeTab === 'patientsList' && !selectedPatient && (
             <div className="space-y-6 animate-fadeIn">
               
-              <div className="bg-[#0D1925] rounded-3xl p-6 text-white border-b-4 border-blue-600 shadow-lg flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+              <div className="bg-white rounded-3xl p-6 text-slate-900 border-b-4 border-blue-600 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
                   <h2 className="text-base font-black uppercase tracking-widest text-white">Active Admission Case Files</h2>
                   <p className="text-xs text-slate-400 mt-1">Search, evaluate, filter and manage patient electronic medical cards instantaneously.</p>
@@ -485,7 +480,7 @@ export default function PatientManagementSystem() {
           {selectedPatient && activeTab === 'patientsList' && (
             <div className="max-w-4xl mx-auto bg-white rounded-3xl border border-slate-200 shadow-2xl overflow-hidden animate-fadeIn">
               
-              <div className="p-6 bg-[#0D1925] text-white border-b-4 border-blue-600 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+              <div className="p-6 bg-white text-slate-900 border-b-4 border-blue-600 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div className="flex items-center gap-3.5">
                   <div className="p-3 bg-slate-800 rounded-2xl border border-slate-700 shadow-inner">
                     <User className="h-6 w-6 text-blue-400" />
@@ -588,7 +583,7 @@ export default function PatientManagementSystem() {
           {activeTab === 'registerPatient' && (
             <div className="max-w-4xl mx-auto bg-white rounded-3xl border border-slate-200 shadow-2xl overflow-hidden animate-fadeIn text-slate-800">
               
-              <div className="p-6 bg-[#0D1925] text-white border-b-4 border-blue-600 flex items-center gap-3">
+              <div className="p-6 bg-white text-slate-900 border-b-4 border-blue-600 flex items-center gap-3">
                 <div className="p-2 bg-slate-800 rounded-xl">
                   <UserPlus className="text-blue-400 h-5 w-5" />
                 </div>

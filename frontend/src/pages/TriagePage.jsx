@@ -10,6 +10,7 @@ export default function TriagePage({ onLogout }) {
   const [selectedPatient, setSelectedPatient] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [triageFilter, setTriageFilter] = useState('All');
+  const hospitalLogo = "/mesra icon.png";
 
   // Core Mock Waiting Queue
   const [queue, setQueue] = useState([
@@ -67,9 +68,7 @@ export default function TriagePage({ onLogout }) {
       <aside className="w-68 bg-white border-r border-slate-200/80 flex flex-col justify-between shrink-0 z-30">
         <div>
           <div className="p-6 border-b border-slate-100 flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center text-white shadow-md shadow-blue-200">
-              <Activity size={22} />
-            </div>
+            <img src={hospitalLogo} alt="Mesra Logo" className="w-10 h-10 object-contain rounded-xl" />
             <div>
               <h3 className="font-black text-slate-900 tracking-tight text-md leading-none">MESRA <span className="text-blue-600">TRIAGE</span></h3>
               <span className="text-[10px] text-slate-400 font-mono tracking-widest block mt-1 uppercase font-bold">Vital Screening</span>
