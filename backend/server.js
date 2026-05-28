@@ -43,6 +43,11 @@ const startServer = async () => {
   app.use("/api/auth", require("./routes/authRoutes"));
   app.use("/api/staffs", require("./routes/staffRoutes"));
   app.use("/api/patients", require("./routes/patientRoutes"));
+  app.use("/api/reception", require("./routes/receptionRoutes"));
+  app.use("/api/triage", require("./routes/triageRoutes"));
+  app.use("/api/doctor", require("./routes/doctorRoutes"));
+  app.use("/api/lab", require("./routes/labRoutes"));
+  app.use("/api/pharmacy", require("./routes/pharmacyRoutes"));
 
   // Base sanity framework fallback checkpoint route
   app.get("/", (req, res) => {
