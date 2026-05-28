@@ -1,8 +1,21 @@
 const express = require("express");
 const router = express.Router();
 const jwt = require("jsonwebtoken");
-// Change from '../models/User' to match your actual file name: Users.js
+const { protectRoute } = require("../middleware/authMiddleware");
 const User = require("../models/User");
+
+const getDashboardRoute = (role) => {
+  const normalizedRole = (role || "").toLowerCase();
+  if (normalizedRole.includes("administrator")) return "admin";
+  if (normalizedRole.includes("pharmacist")) return "pharmacy";
+  if (normalizedRole.includes("laboratory") || normalizedRole.includes("lab"))
+    return "laboratory";
+  if (normalizedRole.includes("doctor")) return "doctor";
+  if (normalizedRole.includes("reception")) return "reception";
+  if (normalizedRole.includes("triage") || normalizedRole.includes("nurse"))
+    return "triage";
+  return "home";
+};
 
 // @route   POST /api/auth/register (Public Access)
 router.post("/register", async (req, res) => {
@@ -43,6 +56,33 @@ router.post("/register", async (req, res) => {
   }
 });
 
+// @route   POST /api/auth/change-password (Protected)
+router.post("/change-password", protectRoute, async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  try {
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: "Current and new passwords are required.",
+      });
+    }
+
+    const user = await User.findById(req.user._id).select("+password");
+    if (!user || !(await user.matchPassword(currentPassword))) {
+      return res
+        .status(401)
+        .json({ success: false, message: "Current password is incorrect." });
+    }
+
+    user.password = newPassword;
+    await user.save();
+
+    res.json({ success: true, message: "Password updated successfully." });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 // @route   POST /api/auth/login (Public Access)
 router.post("/login", async (req, res) => {
   const { email, password } = req.body;
@@ -52,9 +92,11 @@ router.post("/login", async (req, res) => {
       const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
         expiresIn: "1d",
       });
+      const dashboardRoute = getDashboardRoute(user.role);
       res.json({
         success: true,
         token,
+        dashboardRoute,
         user: {
           id: user._id,
           name: user.name,

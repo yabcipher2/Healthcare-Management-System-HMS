@@ -1,4 +1,17 @@
 const StaffProfile = require("../models/StaffProfile");
+const User = require("../models/User");
+
+const mapJobTitleToRole = (jobTitle) => {
+  const title = (jobTitle || "").toLowerCase();
+  if (title.includes("admin")) return "Administrator";
+  if (title.includes("doctor")) return "Doctor";
+  if (title.includes("pharmacist")) return "Pharmacist";
+  if (title.includes("reception")) return "Receptionist";
+  if (title.includes("lab") || title.includes("laboratory"))
+    return "Laboratory";
+  if (title.includes("triage") || title.includes("nurse")) return "Triage";
+  return "Doctor";
+};
 
 const getStaffList = async (req, res) => {
   try {
@@ -27,10 +40,48 @@ const createStaff = async (req, res) => {
     }
     if (!payload.nationalId || payload.nationalId === null) {
       payload.nationalId = `NID-${timestamp}`;
+    } else if (payload.nationalId.includes("@")) {
+      // Prevent email addresses from being used as nationalId
+      return res.status(400).json({
+        success: false,
+        message:
+          "National ID cannot be an email address. Please provide a valid ID number.",
+      });
     }
     if (!payload.certificationNo || payload.certificationNo === null) {
       payload.certificationNo = `CERT-${timestamp}`;
     }
+
+    const shouldCreateUser = payload.email && payload.password;
+    if (payload.email && !payload.password) {
+      return res.status(400).json({
+        success: false,
+        message: "Password is required when email is provided for staff login.",
+      });
+    }
+    if (payload.password && !payload.email) {
+      return res.status(400).json({
+        success: false,
+        message: "Email is required when password is provided for staff login.",
+      });
+    }
+
+    if (shouldCreateUser) {
+      const existingUser = await User.findOne({ email: payload.email });
+      if (existingUser) {
+        return res
+          .status(400)
+          .json({ success: false, message: "Email already registered." });
+      }
+      const userRole = payload.role || mapJobTitleToRole(payload.jobTitle);
+      await User.create({
+        name: payload.name,
+        email: payload.email,
+        password: payload.password,
+        role: userRole,
+      });
+    }
+
     if (!payload.email || payload.email === null) {
       payload.email = `staff-${timestamp}-${random}@mesra.local`;
     }

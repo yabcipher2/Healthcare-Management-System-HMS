@@ -51,6 +51,12 @@ const LandingPage = ({ onLoginClick, onDemoClick }) => {
               Mesra <span className="text-slate-900 not-italic">Digital</span>
             </span>
           </div>
+          {/* =======================================================================
+  PUBLIC FACING PORTAL ACCELERATOR BUTTON
+  =======================================================================
+  Purpose: Allows the Admissions Clerk/Admin to quickly jump out to the 
+  public-facing landing page marketing layer without destroying the active session.
+*/}
 
           <div className="hidden md:flex items-center gap-8 font-medium">
             <a

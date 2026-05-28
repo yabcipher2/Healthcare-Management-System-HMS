@@ -48,6 +48,7 @@ import {
   Upload,
   User,
   Eye,
+  EyeOff,
   ArrowLeft,
   Check,
 } from "lucide-react";
@@ -129,8 +130,15 @@ const AdminDashboard = ({
   // --- PROFILE MANAGEMENT SCREEN SUBSYSTEMS ---
   const [isManagementActive, setIsManagementActive] = useState(false);
   const [managementTargetType, setManagementTargetType] = useState(null); // "staff" | "patient"
-  const [selectedProfile, setSelectedProfile] = useState(null);
+  const [selectedProfile, setSelectedProfile] = useState({});
   const [isInlineEditing, setIsInlineEditing] = useState(false);
+  const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordChangeError, setPasswordChangeError] = useState("");
+  const [passwordChangeSuccess, setPasswordChangeSuccess] = useState("");
+  const [passwordChangeLoading, setPasswordChangeLoading] = useState(false);
 
   // --- DEPARTMENTS LIST CONFIGURATION ---
   const departments = [
@@ -234,7 +242,7 @@ const AdminDashboard = ({
   });
 
   const getAuthHeaders = (isJson = true) => {
-    const token = localStorage.getItem("token");
+    const token = localStorage.getItem("token")?.trim();
     const headers = {};
     if (isJson) headers["Content-Type"] = "application/json";
     if (token) headers["Authorization"] = `Bearer ${token}`;
@@ -295,8 +303,11 @@ const AdminDashboard = ({
 
   // REGISTRATION STATE
   const [isRegModalOpen, setIsRegModalOpen] = useState(false);
+  const [showRegPassword, setShowRegPassword] = useState(false);
   const [newStaff, setNewStaff] = useState({
     name: "",
+    email: "",
+    password: "",
     dob: "",
     gender: "Male",
     nationalId: "",
@@ -445,6 +456,8 @@ const AdminDashboard = ({
       staffId: `STAFF-${nextIdNumber}`,
       profileId: `P-${nextIdNumber + 400}`,
       name: newStaff.name,
+      email: newStaff.email,
+      password: newStaff.password,
       dob: newStaff.dob,
       gender: newStaff.gender,
       nationalId: newStaff.nationalId || `NID-${nextIdNumber}`,
@@ -476,6 +489,8 @@ const AdminDashboard = ({
       setIsRegModalOpen(false);
       setNewStaff({
         name: "",
+        email: "",
+        password: "",
         dob: "",
         gender: "Male",
         nationalId: "",
@@ -492,6 +507,44 @@ const AdminDashboard = ({
       setCurrentPage(1);
     } catch (error) {
       alert(`Create staff failed: ${error.message}`);
+    }
+  };
+
+  const handleChangePassword = async (e) => {
+    e.preventDefault();
+    setPasswordChangeError("");
+    setPasswordChangeSuccess("");
+
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      setPasswordChangeError("All password fields are required.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordChangeError("New password and confirmation do not match.");
+      return;
+    }
+
+    setPasswordChangeLoading(true);
+    try {
+      const response = await fetch(`${API_URL}/api/auth/change-password`, {
+        method: "POST",
+        headers: getAuthHeaders(true),
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.message || "Unable to update password.");
+      }
+      setPasswordChangeSuccess(
+        result.message || "Password updated successfully.",
+      );
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+    } catch (error) {
+      setPasswordChangeError(error.message);
+    } finally {
+      setPasswordChangeLoading(false);
     }
   };
 
@@ -583,16 +636,31 @@ const AdminDashboard = ({
               icon={<UserCog />}
               label="Profile"
               active={activeTab === "profile" && !isManagementActive}
-              onClick={() => setActiveTab("profile")}
+              onClick={() => {
+                setActiveTab("profile");
+                setIsManagementActive(false);
+              }}
             />
             <NavItem
               icon={<Settings />}
               label="Settings"
               active={activeTab === "settings" && !isManagementActive}
-              onClick={() => setActiveTab("settings")}
+              onClick={() => {
+                setActiveTab("settings");
+                setIsManagementActive(false);
+              }}
             />
           </nav>
         </div>
+        <button
+          onClick={() => {
+            // If your dashboard has access to state routing, use that, or hard refresh to home:
+            window.location.href = "/";
+          }}
+          className="w-full flex items-center justify-center gap-2 mb-2 px-4 py-2.5 bg-blue-600/10 hover:bg-blue-600 border border-blue-500/30 hover:border-blue-500 text-blue-400 hover:text-white text-xs font-bold uppercase tracking-wider rounded-xl transition-all"
+        >
+          <Activity size={14} /> View Public Site
+        </button>
         <button
           onClick={onLogout}
           className="mt-auto m-8 flex items-center gap-3 p-4 text-red-500 font-black text-xs uppercase tracking-widest hover:bg-red-50 rounded-2xl transition-all cursor-pointer"
@@ -600,8 +668,6 @@ const AdminDashboard = ({
           <LogOut size={18} /> Logout
         </button>
       </aside>
-
-      {/* CONTAINER HUB */}
       <main className="flex-1 ml-72 p-8">
         {isManagementActive ? (
           <div className="animate-fade-in-up space-y-6 max-w-4xl mx-auto">
@@ -631,13 +697,14 @@ const AdminDashboard = ({
                 )}
                 <button
                   onClick={toggleStatusActivation}
-                  className={`px-5 py-3 rounded-xl font-black text-xs uppercase tracking-widest cursor-pointer shadow-md transition-all ${(managementTargetType === "staff" ? selectedProfile.contractStatus === "Active" : selectedProfile.status !== "Archived") ? "bg-red-50 text-red-600 hover:bg-red-100" : "bg-emerald-50 text-emerald-600 hover:bg-emerald-100"}`}
+                  disabled={!selectedProfile}
+                  className={`px-5 py-3 rounded-xl font-black text-xs uppercase tracking-widest shadow-md transition-all ${!selectedProfile ? "opacity-50 cursor-not-allowed bg-slate-100 text-slate-400" : (managementTargetType === "staff" ? selectedProfile?.contractStatus === "Active" : selectedProfile?.status !== "Archived") ? "bg-red-50 text-red-600 hover:bg-red-100" : "bg-emerald-50 text-emerald-600 hover:bg-emerald-100"}`}
                 >
                   {managementTargetType === "staff"
-                    ? selectedProfile.contractStatus === "Active"
+                    ? selectedProfile?.contractStatus === "Active"
                       ? "Inactivate Account"
                       : "Activate Account"
-                    : selectedProfile.status !== "Archived"
+                    : selectedProfile?.status !== "Archived"
                       ? "Archive Patient"
                       : "Restore Patient"}
                 </button>
@@ -648,23 +715,23 @@ const AdminDashboard = ({
             <div className="bg-white rounded-[2.5rem] border border-slate-100 p-8 shadow-sm grid md:grid-cols-3 gap-8">
               <div className="text-center md:border-r border-slate-50 md:pr-8 flex flex-col justify-center">
                 <div
-                  className={`w-36 h-36 ${selectedProfile.avatarColor || "bg-blue-600"} rounded-[2.5rem] flex items-center justify-center text-white text-5xl font-black mx-auto mb-4 shadow-xl border-4 border-white`}
+                  className={`w-36 h-36 ${selectedProfile?.avatarColor || "bg-blue-600"} rounded-[2.5rem] flex items-center justify-center text-white text-5xl font-black mx-auto mb-4 shadow-xl border-4 border-white`}
                 >
-                  {selectedProfile.name[0]}
+                  {selectedProfile?.name ? selectedProfile.name[0] : ""}
                 </div>
                 <h2 className="text-xl font-black text-slate-900">
-                  {selectedProfile.name}
+                  {selectedProfile?.name || "—"}
                 </h2>
                 <p className="text-xs font-bold text-blue-500 uppercase mt-1 tracking-wider">
-                  ID: {selectedProfile.id}
+                  ID: {selectedProfile?.id || "—"}
                 </p>
                 <div className="mt-4">
                   <span
-                    className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider ${(managementTargetType === "staff" ? selectedProfile.contractStatus === "Active" : selectedProfile.status !== "Archived") ? "bg-emerald-100 text-emerald-600" : "bg-slate-100 text-slate-500"}`}
+                    className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider ${(managementTargetType === "staff" ? selectedProfile?.contractStatus === "Active" : selectedProfile?.status !== "Archived") ? "bg-emerald-100 text-emerald-600" : "bg-slate-100 text-slate-500"}`}
                   >
                     {managementTargetType === "staff"
-                      ? selectedProfile.contractStatus
-                      : selectedProfile.status}
+                      ? selectedProfile?.contractStatus || "—"
+                      : selectedProfile?.status || "—"}
                   </span>
                 </div>
               </div>
@@ -676,26 +743,35 @@ const AdminDashboard = ({
                 <div className="grid grid-cols-2 gap-x-6 gap-y-4">
                   <ManageFieldItem
                     label="Full Name"
-                    value={selectedProfile.name}
+                    value={selectedProfile?.name || ""}
                     isEdit={isInlineEditing}
                     onChange={(val) =>
-                      setSelectedProfile({ ...selectedProfile, name: val })
+                      setSelectedProfile({
+                        ...(selectedProfile || {}),
+                        name: val,
+                      })
                     }
                   />
                   <ManageFieldItem
                     label="Date of Birth"
-                    value={selectedProfile.dob}
+                    value={selectedProfile?.dob || ""}
                     isEdit={isInlineEditing}
                     onChange={(val) =>
-                      setSelectedProfile({ ...selectedProfile, dob: val })
+                      setSelectedProfile({
+                        ...(selectedProfile || {}),
+                        dob: val,
+                      })
                     }
                   />
                   <ManageFieldItem
                     label="Gender"
-                    value={selectedProfile.gender}
+                    value={selectedProfile?.gender || ""}
                     isEdit={isInlineEditing}
                     onChange={(val) =>
-                      setSelectedProfile({ ...selectedProfile, gender: val })
+                      setSelectedProfile({
+                        ...(selectedProfile || {}),
+                        gender: val,
+                      })
                     }
                   />
 
@@ -703,71 +779,77 @@ const AdminDashboard = ({
                     <>
                       <ManageFieldItem
                         label="National ID Key"
-                        value={selectedProfile.nationalId}
+                        value={selectedProfile?.nationalId || ""}
                         isEdit={isInlineEditing}
                         onChange={(val) =>
                           setSelectedProfile({
-                            ...selectedProfile,
+                            ...(selectedProfile || {}),
                             nationalId: val,
                           })
                         }
                       />
                       <ManageFieldItem
                         label="Contact Line"
-                        value={selectedProfile.phone}
+                        value={selectedProfile?.phone || ""}
                         isEdit={isInlineEditing}
                         onChange={(val) =>
-                          setSelectedProfile({ ...selectedProfile, phone: val })
+                          setSelectedProfile({
+                            ...(selectedProfile || {}),
+                            phone: val,
+                          })
                         }
                       />
                       <ManageFieldItem
                         label="Emergency Backup Link"
-                        value={selectedProfile.emergencyContact}
+                        value={selectedProfile?.emergencyContact || ""}
                         isEdit={isInlineEditing}
                         onChange={(val) =>
                           setSelectedProfile({
-                            ...selectedProfile,
+                            ...(selectedProfile || {}),
                             emergencyContact: val,
                           })
                         }
                       />
                       <ManageFieldItem
                         label="Assigned Title"
-                        value={selectedProfile.jobTitle}
+                        value={selectedProfile?.jobTitle || ""}
                         isEdit={isInlineEditing}
                         onChange={(val) =>
                           setSelectedProfile({
-                            ...selectedProfile,
+                            ...(selectedProfile || {}),
                             jobTitle: val,
                           })
                         }
                       />
                       <ManageFieldItem
                         label="Operational Department"
-                        value={selectedProfile.dept}
+                        value={selectedProfile?.dept || ""}
                         isEdit={isInlineEditing}
                         onChange={(val) =>
-                          setSelectedProfile({ ...selectedProfile, dept: val })
+                          setSelectedProfile({
+                            ...(selectedProfile || {}),
+                            dept: val,
+                          })
                         }
                       />
                       <ManageFieldItem
                         label="Professional Qualification"
-                        value={selectedProfile.qualification}
+                        value={selectedProfile?.qualification || ""}
                         isEdit={isInlineEditing}
                         onChange={(val) =>
                           setSelectedProfile({
-                            ...selectedProfile,
+                            ...(selectedProfile || {}),
                             qualification: val,
                           })
                         }
                       />
                       <ManageFieldItem
                         label="MOH Certification Identity"
-                        value={selectedProfile.certNo}
+                        value={selectedProfile?.certNo || ""}
                         isEdit={isInlineEditing}
                         onChange={(val) =>
                           setSelectedProfile({
-                            ...selectedProfile,
+                            ...(selectedProfile || {}),
                             certNo: val,
                           })
                         }
@@ -777,44 +859,44 @@ const AdminDashboard = ({
                     <>
                       <ManageFieldItem
                         label="Contact Line"
-                        value={selectedProfile.contactInfo}
+                        value={selectedProfile?.contactInfo || ""}
                         isEdit={isInlineEditing}
                         onChange={(val) =>
                           setSelectedProfile({
-                            ...selectedProfile,
+                            ...(selectedProfile || {}),
                             contactInfo: val,
                           })
                         }
                       />
                       <ManageFieldItem
                         label="System Registration Timestamp"
-                        value={selectedProfile.regDate}
+                        value={selectedProfile?.regDate || ""}
                         isEdit={isInlineEditing}
                         onChange={(val) =>
                           setSelectedProfile({
-                            ...selectedProfile,
+                            ...(selectedProfile || {}),
                             regDate: val,
                           })
                         }
                       />
                       <ManageFieldItem
                         label="Insurance Policy Provider"
-                        value={selectedProfile.insuranceProvider}
+                        value={selectedProfile?.insuranceProvider || ""}
                         isEdit={isInlineEditing}
                         onChange={(val) =>
                           setSelectedProfile({
-                            ...selectedProfile,
+                            ...(selectedProfile || {}),
                             insuranceProvider: val,
                           })
                         }
                       />
                       <ManageFieldItem
                         label="Policy Claim Account No"
-                        value={selectedProfile.policyNumber}
+                        value={selectedProfile?.policyNumber || ""}
                         isEdit={isInlineEditing}
                         onChange={(val) =>
                           setSelectedProfile({
-                            ...selectedProfile,
+                            ...(selectedProfile || {}),
                             policyNumber: val,
                           })
                         }
@@ -827,7 +909,10 @@ const AdminDashboard = ({
                       value={selectedProfile.address || "Addis Ababa, Ethiopia"}
                       isEdit={isInlineEditing}
                       onChange={(val) =>
-                        setSelectedProfile({ ...selectedProfile, address: val })
+                        setSelectedProfile({
+                          ...(selectedProfile || {}),
+                          address: val,
+                        })
                       }
                     />
                   </div>
@@ -1474,6 +1559,25 @@ const AdminDashboard = ({
                           />
                         </button>
                       </div>
+
+                      <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm space-y-4">
+                        <h3 className="text-xs font-black uppercase text-slate-400 tracking-widest flex items-center gap-2">
+                          <Lock size={14} className="text-blue-500" />{" "}
+                          Credential Management
+                        </h3>
+                        <p className="text-sm text-slate-500">
+                          Update your administrator password securely. Staff
+                          users can also use the pharmacy dashboard to update
+                          their own password.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => setIsChangePasswordOpen(true)}
+                          className="w-full py-4 rounded-2xl bg-blue-600 text-white font-black uppercase tracking-widest hover:bg-blue-700 transition-all"
+                        >
+                          Change Password
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1482,6 +1586,90 @@ const AdminDashboard = ({
           </>
         )}
       </main>
+
+      {/* PASSWORD CHANGE MODAL */}
+      {isChangePasswordOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="bg-white w-full max-w-2xl rounded-[2.5rem] p-8 animate-pop-in border border-slate-100 shadow-2xl relative my-auto">
+            <button
+              onClick={() => setIsChangePasswordOpen(false)}
+              className="absolute top-6 right-6 text-slate-400 hover:text-red-500"
+            >
+              <X size={20} />
+            </button>
+            <h3 className="text-2xl font-black italic mb-2">Change Password</h3>
+            <p className="text-xs font-bold text-slate-400 uppercase tracking-wide mb-6">
+              Use a secure, professional password for your account.
+            </p>
+
+            {passwordChangeError && (
+              <div className="mb-4 rounded-3xl border border-red-100 bg-red-50 p-4 text-sm text-red-600">
+                {passwordChangeError}
+              </div>
+            )}
+            {passwordChangeSuccess && (
+              <div className="mb-4 rounded-3xl border border-emerald-100 bg-emerald-50 p-4 text-sm text-emerald-700">
+                {passwordChangeSuccess}
+              </div>
+            )}
+
+            <form onSubmit={handleChangePassword} className="space-y-4">
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase ml-1">
+                  Current Password
+                </label>
+                <input
+                  type="password"
+                  className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold mt-1 text-xs outline-none"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  required
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase ml-1">
+                  New Password
+                </label>
+                <input
+                  type="password"
+                  className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold mt-1 text-xs outline-none"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  required
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase ml-1">
+                  Confirm New Password
+                </label>
+                <input
+                  type="password"
+                  className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold mt-1 text-xs outline-none"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="flex gap-2 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setIsChangePasswordOpen(false)}
+                  className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-xs"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={passwordChangeLoading}
+                  className="flex-1 py-4 bg-blue-600 text-white rounded-2xl font-black uppercase text-xs shadow-lg shadow-blue-100 disabled:opacity-60"
+                >
+                  {passwordChangeLoading ? "Saving..." : "Save Password"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* REGISTRATION MODAL */}
       {isRegModalOpen && (
@@ -1607,6 +1795,47 @@ const AdminDashboard = ({
                   }
                   required
                 />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase ml-1">
+                    Login Email
+                  </label>
+                  <input
+                    type="email"
+                    className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold mt-1 text-xs outline-none"
+                    value={newStaff.email}
+                    onChange={(e) =>
+                      setNewStaff({ ...newStaff, email: e.target.value })
+                    }
+                    required
+                  />
+                </div>
+                <div className="relative">
+                  <label className="text-[10px] font-black text-slate-400 uppercase ml-1">
+                    Login Password
+                  </label>
+                  <input
+                    type={showRegPassword ? "text" : "password"}
+                    className="w-full p-3 pr-12 bg-slate-50 border border-slate-100 rounded-xl font-bold mt-1 text-xs outline-none"
+                    value={newStaff.password}
+                    onChange={(e) =>
+                      setNewStaff({ ...newStaff, password: e.target.value })
+                    }
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowRegPassword((prev) => !prev)}
+                    className="absolute right-3 top-[38px] text-slate-400 hover:text-slate-900 transition-colors"
+                    aria-label={
+                      showRegPassword ? "Hide password" : "Show password"
+                    }
+                  >
+                    {showRegPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
               </div>
 
               <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest border-b pb-1 pt-2">

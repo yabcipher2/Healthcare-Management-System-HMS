@@ -7,11 +7,11 @@ import TriagePage from "./pages/TriagePage";
 import DoctorPage from "./pages/DoctorPage";
 import PharmacyPage from "./pages/PharmacyPage";
 import LaboratoryPage from "./pages/LaboratoryPage";
+import Landingpage from "./pages/Landingpage";
 
 export default function App() {
   // 1. FORCED ROUTING CONTROLLER
-  // Set to "reception", "triage", "doctor", "pharmacy", "laboratory", "admin", or "home" to immediately jump to that screen.
-  const [currentPage, setCurrentPage] = useState("reception"); // Default to pharmacy for development testing
+  const [currentPage, setCurrentPage] = useState("home");
 
   const [isMaintenanceMode, setIsMaintenanceMode] = useState(false);
   const [user, setUser] = useState(() => {
@@ -22,74 +22,78 @@ export default function App() {
     }
   });
 
+  const getPageFromRole = (role) => {
+    const normalizedRole = role?.toLowerCase?.() || "";
+    if (normalizedRole.includes("administrator")) return "admin";
+    if (normalizedRole.includes("pharmacist")) return "pharmacy";
+    if (normalizedRole.includes("laboratory") || normalizedRole.includes("lab"))
+      return "laboratory";
+    if (normalizedRole.includes("doctor")) return "doctor";
+    if (normalizedRole.includes("reception")) return "reception";
+    if (normalizedRole.includes("triage") || normalizedRole.includes("nurse"))
+      return "triage";
+    return "home";
+  };
+
+  const getPageFromUser = (user) => {
+    if (!user) return "home";
+    return user.dashboardRoute || getPageFromRole(user.role);
+  };
+
+  // --- CRITICAL DOCUMENTATION PATH GUARD FIX ---
   useEffect(() => {
-    const normalizedRole = user?.role?.toLowerCase?.() || "";
-    if (normalizedRole === "administrator") {
-      setCurrentPage("admin");
-    } else if (normalizedRole === "pharmacist") {
-      setCurrentPage("pharmacy");
-    } else if (user) {
-      setCurrentPage("other");
+    if (user) {
+      setCurrentPage(getPageFromUser(user));
     } else {
-      setCurrentPage("login");
+      // FIX: If no authenticated session is active, allow safe passage to public nodes ('home', 'demo')
+      // instead of aggressively forcing the login gate. This allows public landing page rendering.
+      if (currentPage !== "home" && currentPage !== "demo") {
+        setCurrentPage("login");
+      }
     }
-  }, [user]);
+  }, [user]); // Removed currentPage dependency to avoid loop toggles
 
   const handleLoginSuccess = (userPayload) => {
-    const normalizedRole = userPayload.role?.toLowerCase?.() || "";
     setUser(userPayload);
     localStorage.setItem("user", JSON.stringify(userPayload));
-    setCurrentPage(
-      normalizedRole === "administrator"
-        ? "admin"
-        : normalizedRole === "pharmacist"
-          ? "pharmacy"
-          : "other",
-    );
+    setCurrentPage(getPageFromUser(userPayload));
   };
 
   const handleLogout = () => {
-    setCurrentPage("home"); // Returns securely back to the landing page
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
+    setUser(null);
+    setCurrentPage("home"); // Safely sets routing state focus back to landing layer
   };
 
   // 2. FALLBACK PROTECTION ENGINE
-  // Defines all explicitly mapped page strings including pharmacy and laboratory additions
   const validPages = [
-    "reception", 
-    "triage", 
-    "doctor", 
+    "reception",
+    "triage",
+    "doctor",
     "pharmacy",
     "laboratory",
-    "admin", 
-    "home", 
-    "demo", 
-    "login"
+    "admin",
+    "home",
+    "demo",
+    "login",
   ];
-  
-  // If a non-existent state or type mismatch happens, safely force render back to landing home view
+
   const activeView = validPages.includes(currentPage) ? currentPage : "home";
 
   return (
     <>
       {/* 3. RECEPTION DASHBOARD NODE */}
-      {activeView === "reception" && (
-        <ReceptionPage onLogout={handleLogout} />
-      )}
+      {activeView === "reception" && <ReceptionPage onLogout={handleLogout} />}
 
       {/* 4. TRIAGE CLINICAL STATION SCREEN */}
-      {activeView === "triage" && (
-        <TriagePage onLogout={handleLogout} />
-      )}
+      {activeView === "triage" && <TriagePage onLogout={handleLogout} />}
 
       {/* 5. DOCTOR CONSULTATION ROOM INTERFACE */}
-      {activeView === "doctor" && (
-        <DoctorPage onLogout={handleLogout} />
-      )}
+      {activeView === "doctor" && <DoctorPage onLogout={handleLogout} />}
 
       {/* 5.5 PHARMACY AND DISPENSING DEPOT */}
-      {activeView === "pharmacy" && (
-        <PharmacyPage onLogout={handleLogout} />
-      )}
+      {activeView === "pharmacy" && <PharmacyPage onLogout={handleLogout} />}
 
       {/* 5.6 LABORATORY DIAGNOSTICS DECK */}
       {activeView === "laboratory" && (
@@ -123,11 +127,9 @@ export default function App() {
       {activeView === "login" && (
         <Login
           onBackClick={() => setCurrentPage("home")}
-          onLoginSuccess={() => setCurrentPage("admin")}
+          onLoginSuccess={handleLoginSuccess}
         />
       )}
-
-      {currentPage === "login" && <Login onLoginSuccess={handleLoginSuccess} />}
     </>
   );
 }

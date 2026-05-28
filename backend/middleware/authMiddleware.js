@@ -16,9 +16,11 @@ const protectRoute = async (req, res, next) => {
       req.user = await User.findById(decoded.id).select("-password");
       return next();
     } catch (error) {
-      return res
-        .status(401)
-        .json({ success: false, message: "Access Denied: Invalid Token" });
+      const message =
+        error.name === "TokenExpiredError"
+          ? "Access Denied: Token Expired"
+          : "Access Denied: Invalid Token";
+      return res.status(401).json({ success: false, message });
     }
   }
 

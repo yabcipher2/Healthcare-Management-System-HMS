@@ -45,8 +45,12 @@ const Login = ({ onLoginSuccess }) => {
       }
 
       localStorage.setItem("token", result.token);
-      localStorage.setItem("user", JSON.stringify(result.user));
-      onLoginSuccess(result.user);
+      const loginData = {
+        ...result.user,
+        dashboardRoute: result.dashboardRoute,
+      };
+      localStorage.setItem("user", JSON.stringify(loginData));
+      onLoginSuccess(loginData);
     } catch (error) {
       setError(error.message);
     } finally {
@@ -96,6 +100,16 @@ const Login = ({ onLoginSuccess }) => {
           </div>
 
           <form className="space-y-6" onSubmit={handleLogin}>
+            <div className="rounded-3xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-700">
+              <p className="font-black uppercase tracking-[0.2em] text-[10px] mb-2">
+                Admin Provisioned Access Only
+              </p>
+              <p>
+                First-time credentials must be created by an administrator. If
+                you do not have login details, please request them from your
+                system administrator.
+              </p>
+            </div>
             {error && (
               <div className="bg-red-50 border-l-4 border-red-500 p-4 mb-4 rounded-r-xl animate-bounce">
                 <p className="text-[10px] font-black text-red-600 flex items-center gap-2 uppercase tracking-widest">
