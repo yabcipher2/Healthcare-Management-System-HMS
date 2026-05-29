@@ -8,10 +8,11 @@ import DoctorPage from "./pages/DoctorPage";
 import PharmacyPage from "./pages/PharmacyPage";
 import LaboratoryPage from "./pages/LaboratoryPage";
 import Landingpage from "./pages/Landingpage";
+import UltrasoundPage from "./pages/UltrasoundPage"; // Added Ultrasound Page import
 
 export default function App() {
   // 1. FORCED ROUTING CONTROLLER
-  const [currentPage, setCurrentPage] = useState("home");
+  const [currentPage, setCurrentPage] = useState("ultrasound");
 
   const [isMaintenanceMode, setIsMaintenanceMode] = useState(false);
   const [user, setUser] = useState(() => {
@@ -28,6 +29,8 @@ export default function App() {
     if (normalizedRole.includes("pharmacist")) return "pharmacy";
     if (normalizedRole.includes("laboratory") || normalizedRole.includes("lab"))
       return "laboratory";
+    if (normalizedRole.includes("ultrasound") || normalizedRole.includes("sono"))
+      return "ultrasound"; // Added ultrasound role mapping
     if (normalizedRole.includes("doctor")) return "doctor";
     if (normalizedRole.includes("reception")) return "reception";
     if (normalizedRole.includes("triage") || normalizedRole.includes("nurse"))
@@ -73,13 +76,14 @@ export default function App() {
     "doctor",
     "pharmacy",
     "laboratory",
+    "ultrasound", // Added ultrasound to the validation engine
     "admin",
     "home",
     "demo",
     "login",
   ];
 
-  const activeView = validPages.includes(currentPage) ? currentPage : "home";
+  const activeView = validPages.includes(currentPage) ? currentPage : "ultrasound";
 
   return (
     <>
@@ -98,6 +102,11 @@ export default function App() {
       {/* 5.6 LABORATORY DIAGNOSTICS DECK */}
       {activeView === "laboratory" && (
         <LaboratoryPage onLogout={handleLogout} />
+      )}
+
+      {/* 5.7 ULTRASOUND IMAGING STATION */}
+      {activeView === "ultrasound" && (
+        <UltrasoundPage onLogout={handleLogout} />
       )}
 
       {/* 6. ADMIN SECURITY LAYER */}
