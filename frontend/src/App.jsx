@@ -9,10 +9,12 @@ import PharmacyPage from "./pages/PharmacyPage";
 import LaboratoryPage from "./pages/LaboratoryPage";
 import Landingpage from "./pages/Landingpage";
 import UltrasoundPage from "./pages/UltrasoundPage"; // Added Ultrasound Page import
+import LabCashierPage from "./pages/LabCashierPage"; // Added Laboratory Cashier Page
+import PharmacyCashierPage from "./pages/PharmacyCashierPage"; // Added Pharmacy Cashier Page
 
 export default function App() {
   // 1. FORCED ROUTING CONTROLLER
-  const [currentPage, setCurrentPage] = useState("ultrasound");
+  const [currentPage, setCurrentPage] = useState("home");
 
   const [isMaintenanceMode, setIsMaintenanceMode] = useState(false);
   const [user, setUser] = useState(() => {
@@ -26,6 +28,10 @@ export default function App() {
   const getPageFromRole = (role) => {
     const normalizedRole = role?.toLowerCase?.() || "";
     if (normalizedRole.includes("administrator")) return "admin";
+    if (normalizedRole.includes("pharmacist-cashier") || normalizedRole.includes("pharmacy cashier"))
+      return "pharmacy-cashier"; // Added role mapping for pharmacy cashier
+    if (normalizedRole.includes("laboratory-cashier") || normalizedRole.includes("lab cashier"))
+      return "lab-cashier"; // Added role mapping for lab cashier
     if (normalizedRole.includes("pharmacist")) return "pharmacy";
     if (normalizedRole.includes("laboratory") || normalizedRole.includes("lab"))
       return "laboratory";
@@ -77,6 +83,8 @@ export default function App() {
     "pharmacy",
     "laboratory",
     "ultrasound", // Added ultrasound to the validation engine
+    "lab-cashier", // Added lab cashier route protection token
+    "pharmacy-cashier", // Added pharmacy cashier route protection token
     "admin",
     "home",
     "demo",
@@ -107,6 +115,16 @@ export default function App() {
       {/* 5.7 ULTRASOUND IMAGING STATION */}
       {activeView === "ultrasound" && (
         <UltrasoundPage onLogout={handleLogout} />
+      )}
+
+      {/* 5.8 LABORATORY CASHIER PAGE */}
+      {activeView === "lab-cashier" && (
+        <LabCashierPage onLogout={handleLogout} />
+      )}
+
+      {/* 5.9 PHARMACY CASHIER PAGE */}
+      {activeView === "pharmacy-cashier" && (
+        <PharmacyCashierPage onLogout={handleLogout} />
       )}
 
       {/* 6. ADMIN SECURITY LAYER */}
