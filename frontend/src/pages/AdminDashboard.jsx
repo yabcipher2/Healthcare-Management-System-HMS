@@ -84,7 +84,7 @@ const AdminDashboard = ({
   const [activeTab, setActiveTab] = useState("overview");
   const [systemStatus, setSystemStatus] = useState("open");
   const fileInputRef = useRef(null);
-  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+  const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:5000";
 
   const statusInstructions = {
     open: {
