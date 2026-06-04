@@ -2,38 +2,14 @@ const express = require("express");
 const dotenv = require("dotenv");
 const cors = require("cors");
 const connectDB = require("./config/db");
-const User = require("./models/User");
 
 // Load settings environment format [cite: 19, 23]
 dotenv.config();
-
-const seedAdminUser = async () => {
-  try {
-    const existing = await User.findOne({ email: "admin@mesra.com" });
-    if (!existing) {
-      await User.create({
-        staffId: "ADMIN-001",
-        id: "ADMIN-ID-001",
-        profileId: "ADMIN-P-001",
-        nationalId: "ADMIN-NID-001",
-        certificationNo: "ADMIN-CERT-001",
-        name: "System Administrator",
-        email: "admin@mesra.com",
-        password: "admin123",
-        role: "Administrator",
-      });
-      console.log("Default admin user created: admin@mesra.com / admin123");
-    }
-  } catch (error) {
-    console.error("Failed to seed default admin user:", error.message);
-  }
-};
 
 const app = express();
 
 const startServer = async () => {
   await connectDB();
-  await seedAdminUser();
 
   // --- PAYLOAD PARSING MIDDLEWARE ---
   app.use(express.json());
@@ -46,6 +22,9 @@ const startServer = async () => {
   app.use("/api/reception", require("./routes/receptionRoutes"));
   app.use("/api/triage", require("./routes/triageRoutes"));
   app.use("/api/doctor", require("./routes/doctorRoutes"));
+  app.use("/api/nurse", require("./routes/nurseRoutes"));
+  app.use("/api/ward", require("./routes/wardRoutes"));
+  app.use("/api/store", require("./routes/storeRoutes"));
   app.use("/api/lab", require("./routes/labRoutes"));
   app.use("/api/pharmacy", require("./routes/pharmacyRoutes"));
 

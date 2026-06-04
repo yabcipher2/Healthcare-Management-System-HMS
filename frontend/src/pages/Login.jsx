@@ -62,22 +62,32 @@ const Login = ({ onLoginSuccess, onBackClick }) => {
   };
   return (
     <div className="relative min-h-screen w-full flex items-center justify-center overflow-hidden font-sans">
-      {/* Background Images */}
-      {images.map((img, index) => (
-        <div
-          key={index}
-          className={`absolute inset-0 transition-opacity duration-1000 ease-in-out ${
-            index === currentImg ? "opacity-60" : "opacity-0"
-          }`}
-        >
-          <img
-            src={img}
-            alt="Background"
-            className="w-full h-full object-cover scale-105"
-          />
-          <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-[2px]" />
-        </div>
-      ))}
+       {/* Background Images */}
+        {images.map((img, index) => (
+          <div
+            key={index}
+            className={`absolute inset-0 transition-opacity duration-1000 ease-in-out ${
+              index === currentImg ? "opacity-60" : "opacity-0"
+            }`}
+          >
+            {/* Skip external images if offline - use local fallback */}
+            {(typeof window !== 'undefined' && navigator.onLine) ? (
+              <img
+                src={img}
+                alt="Background"
+                className="w-full h-full object-cover scale-105"
+                onError={() => {
+                  // Fallback to gray background when image fails to load
+                  // We could also try the next image in the sequence, but for simplicity
+                  // we'll just show the fallback background
+                }}
+              />
+            ) : (
+              <div className="w-full h-full bg-slate-900/80" />
+            )}
+           <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-[2px]" />
+         </div>
+       ))}
 
       {/* Back Button */}
       <div className="relative z-10 w-full max-w-md px-6 animate-fade-in-up">

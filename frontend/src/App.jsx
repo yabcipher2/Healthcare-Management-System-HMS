@@ -8,9 +8,9 @@ import DoctorPage from "./pages/DoctorPage";
 import PharmacyPage from "./pages/PharmacyPage";
 import LaboratoryPage from "./pages/LaboratoryPage";
 import Landingpage from "./pages/Landingpage";
-import UltrasoundPage from "./pages/UltrasoundPage"; // Added Ultrasound Page import
-import LabCashierPage from "./pages/LabCashierPage"; // Added Laboratory Cashier Page
-import PharmacyCashierPage from "./pages/PharmacyCashierPage"; // Added Pharmacy Cashier Page
+import WardPage from "./pages/WardPage";
+import NursePage from "./pages/NursePage";
+import StoreManagementPage from "./pages/StoreManagementPage";
 
 export default function App() {
   // 1. FORCED ROUTING CONTROLLER
@@ -25,6 +25,7 @@ export default function App() {
     }
   });
 
+  // FIXED: Added clear string role parsers for ward, nurse, and store setups
   const getPageFromRole = (role) => {
     const normalizedRole = role?.toLowerCase?.() || "";
     if (normalizedRole.includes("administrator")) return "admin";
@@ -39,8 +40,15 @@ export default function App() {
       return "ultrasound"; // Added ultrasound role mapping
     if (normalizedRole.includes("doctor")) return "doctor";
     if (normalizedRole.includes("reception")) return "reception";
-    if (normalizedRole.includes("triage") || normalizedRole.includes("nurse"))
-      return "triage";
+    if (normalizedRole.includes("ward") || normalizedRole.includes("charge"))
+      return "ward";
+    if (normalizedRole.includes("nurse")) return "nurse";
+    if (
+      normalizedRole.includes("store") ||
+      normalizedRole.includes("inventory") ||
+      normalizedRole.includes("supply")
+    )
+      return "storemanagement";
     return "home";
   };
 
@@ -54,13 +62,11 @@ export default function App() {
     if (user) {
       setCurrentPage(getPageFromUser(user));
     } else {
-      // FIX: If no authenticated session is active, allow safe passage to public nodes ('home', 'demo')
-      // instead of aggressively forcing the login gate. This allows public landing page rendering.
       if (currentPage !== "home" && currentPage !== "demo") {
         setCurrentPage("login");
       }
     }
-  }, [user]); // Removed currentPage dependency to avoid loop toggles
+  }, [user]);
 
   const handleLoginSuccess = (userPayload) => {
     setUser(userPayload);
@@ -72,7 +78,7 @@ export default function App() {
     localStorage.removeItem("token");
     localStorage.removeItem("user");
     setUser(null);
-    setCurrentPage("home"); // Safely sets routing state focus back to landing layer
+    setCurrentPage("home");
   };
 
   // 2. FALLBACK PROTECTION ENGINE
@@ -89,9 +95,13 @@ export default function App() {
     "home",
     "demo",
     "login",
+    "nurse",
+    "ward",
+    "storemanagement",
   ];
 
-  const activeView = validPages.includes(currentPage) ? currentPage : "ultrasound";
+  // Safeguards string states to match valid target links
+  const activeView = validPages.includes(currentPage) ? currentPage : "home";
 
   return (
     <>
@@ -112,19 +122,16 @@ export default function App() {
         <LaboratoryPage onLogout={handleLogout} />
       )}
 
-      {/* 5.7 ULTRASOUND IMAGING STATION */}
-      {activeView === "ultrasound" && (
-        <UltrasoundPage onLogout={handleLogout} />
-      )}
+      {/* FIXED: Standardized case strings from upper to lower matching validPages array */}
+      {/* 5.7 WARD OCCUPANCY OPERATIONS */}
+      {activeView === "ward" && <WardPage onLogout={handleLogout} />}
 
-      {/* 5.8 LABORATORY CASHIER PAGE */}
-      {activeView === "lab-cashier" && (
-        <LabCashierPage onLogout={handleLogout} />
-      )}
+      {/* 5.8 NURSE CLINICAL PIPELINE HUB */}
+      {activeView === "nurse" && <NursePage onLogout={handleLogout} />}
 
-      {/* 5.9 PHARMACY CASHIER PAGE */}
-      {activeView === "pharmacy-cashier" && (
-        <PharmacyCashierPage onLogout={handleLogout} />
+      {/* 5.9 INVENTORY DEPOT DEPOT STORE */}
+      {activeView === "storemanagement" && (
+        <StoreManagementPage onLogout={handleLogout} />
       )}
 
       {/* 6. ADMIN SECURITY LAYER */}

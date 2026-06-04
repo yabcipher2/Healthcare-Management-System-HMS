@@ -28,63 +28,8 @@ export default function PatientManagementSystem() {
   const [isEditing, setIsEditing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Sample Mock Data matching Ethiopian Administrative Attributes
-  const [patients, setPatients] = useState([
-    {
-      cardId: "MR-2026-001",
-      firstName: "Abebe",
-      middleName: "Beka",
-      lastName: "Alemu",
-      age: "28",
-      ageUnit: "Years",
-      gender: "Male",
-      bloodGroup: "O+",
-      maritalStatus: "Single",
-      subCity: "Bole",
-      woreda: "03",
-      houseNumber: "1024",
-      nationality: "Ethiopian",
-      phoneNumber: "+251911234567",
-      alternativePhone: "",
-      emergencyContactName: "Chaltu Beka",
-      emergencyContactPhone: "+251911778899",
-      guardianFullName: "",
-      guardianRelationship: "",
-      guardianPhone: "",
-      chiefComplaint:
-        "Patient reports acute abdominal pain lasting over 24 hours associated with intermittent low-grade fever and nausea.",
-      admissionType: "OPD",
-      paymentType: "Cash",
-      companyName: "",
-      referredFrom: "Self-Referral",
-      registrationTime: "2026-05-22 09:15 AM",
-    },
-    {
-      cardId: "MR-2026-002",
-      firstName: "Bethlehem",
-      middleName: "Tesfaye",
-      lastName: "Getachew",
-      age: "34",
-      ageUnit: "Years",
-      gender: "Female",
-      bloodGroup: "A+",
-      maritalStatus: "Married",
-      subCity: "Yeka",
-      woreda: "11",
-      houseNumber: "A-44",
-      nationality: "Ethiopian",
-      phoneNumber: "0912345678",
-      emergencyContactName: "Tesfaye Getachew",
-      emergencyContactPhone: "0911556677",
-      chiefComplaint:
-        "Routine antenatal assessment. Third trimester follow-up presentation.",
-      admissionType: "OPD",
-      paymentType: "Credit/Insurance",
-      companyName: "Nyang Real Estate Payer",
-      referredFrom: "Local Clinic",
-      registrationTime: "2026-05-22 10:30 AM",
-    },
-  ]);
+  // Patient Records List
+  const [patients, setPatients] = useState([]);
 
   const initialFormState = {
     cardId: "",
@@ -117,7 +62,64 @@ export default function PatientManagementSystem() {
 
   const [formData, setFormData] = useState(initialFormState);
   const [formErrors, setFormErrors] = useState({});
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
   const hospitalLogo = "/mesra icon.png";
+
+  const token = localStorage.getItem("token");
+
+  const getAuthHeaders = (isJson = true) => {
+    const headers = {};
+    if (isJson) headers["Content-Type"] = "application/json";
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    return headers;
+  };
+
+  const handleAuthError = () => {
+    localStorage.clear();
+    sessionStorage.clear();
+    window.location.href = "/login";
+  };
+
+  // API Configuration
+  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+
+  // Fetch patients from backend on mount and poll for updates
+  useEffect(() => {
+    if (!token) {
+      handleAuthError();
+      return;
+    }
+    const fetchPatients = async () => {
+      try {
+        setLoading(true);
+        const response = await fetch(`${API_URL}/api/patients`, {
+          headers: getAuthHeaders(),
+        });
+        if (response.status === 401 || response.status === 403) {
+          handleAuthError();
+          return;
+        }
+        if (!response.ok) throw new Error("Failed to fetch patients");
+        const data = await response.json();
+        const normalizedPatients = (data.data || []).map((patient) => ({
+          ...patient,
+          phoneNumber: patient.phoneNumber || patient.contactNumber || "",
+          admissionType: patient.admissionType || "OPD",
+        }));
+        setPatients(normalizedPatients);
+        setError("");
+      } catch (err) {
+        console.error("Error fetching patients:", err);
+        setError("Failed to load patients");
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchPatients();
+    const interval = setInterval(fetchPatients, 5000);
+    return () => clearInterval(interval);
+  }, [API_URL, token]);
 
   // Automatically update and handle fallback live internet system date/time
   useEffect(() => {
@@ -196,47 +198,59 @@ export default function PatientManagementSystem() {
     return Object.keys(errors).length === 0;
   };
 
-  const handleFormSubmit = (e) => {
+  const handleFormSubmit = async (e) => {
     e.preventDefault();
     if (!validateForm()) return;
 
-    // Convert internal raw calendar value back to clean standard logging format
-    const formattedDate = new Date(formData.registrationTime);
-    const readableTimestamp =
-      formattedDate.toLocaleDateString("en-US", {
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-      }) +
-      " " +
-      formattedDate.toLocaleTimeString("en-US", {
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: true,
-      });
+    try {
+      setLoading(true);
 
-    if (isEditing) {
-      setPatients((prev) =>
-        prev.map((p) =>
-          p.cardId === formData.cardId
-            ? { ...formData, registrationTime: readableTimestamp }
-            : p,
-        ),
-      );
-      setSelectedPatient({ ...formData, registrationTime: readableTimestamp });
-      setIsEditing(false);
-    } else {
-      const generatedId = `MR-2026-${String(patients.length + 1).padStart(3, "0")}`;
-      const newRecord = {
-        ...formData,
-        cardId: generatedId,
-        registrationTime: readableTimestamp,
-      };
-      setPatients((prev) => [newRecord, ...prev]);
+      if (isEditing) {
+        const { _id, ...updatePayload } = formData;
+        const response = await fetch(`${API_URL}/api/patients/${_id}`, {
+          method: "PUT",
+          headers: getAuthHeaders(),
+          body: JSON.stringify(updatePayload),
+        });
+        if (response.status === 401 || response.status === 403) {
+          handleAuthError();
+          return;
+        }
+        if (!response.ok) {
+          const errData = await response.json();
+          throw new Error(errData.message || "Failed to update patient");
+        }
+        const data = await response.json();
+        setPatients((prev) =>
+          prev.map((p) => (p._id === data.data._id ? data.data : p))
+        );
+        setSelectedPatient(data.data);
+        setIsEditing(false);
+      } else {
+        // Register new patient
+        const response = await fetch(`${API_URL}/api/patients`, {
+          method: "POST",
+          headers: getAuthHeaders(),
+          body: JSON.stringify(formData),
+        });
+        if (response.status === 401 || response.status === 403) {
+          handleAuthError();
+          return;
+        }
+        if (!response.ok) throw new Error("Failed to register patient");
+        const data = await response.json();
+        setPatients((prev) => [data.data, ...prev]);
+      }
+
+      setFormData(initialFormState);
+      setActiveTab("patientsList");
+      setError("");
+    } catch (err) {
+      console.error("Error submitting form:", err);
+      setError(err.message || "Failed to save patient");
+    } finally {
+      setLoading(false);
     }
-
-    setFormData(initialFormState);
-    setActiveTab("patientsList");
   };
 
   // --- FILTER & PATIENT SEARCH ENGINE ---
@@ -253,9 +267,8 @@ export default function PatientManagementSystem() {
 
     const fullName =
       `${patient.firstName} ${patient.middleName} ${patient.lastName}`.toLowerCase();
-    const cleanPhone = patient.phoneNumber
-      ? patient.phoneNumber.replace(/[\s+-]/g, "")
-      : "";
+    const cleanPhone = (patient.phoneNumber || patient.contactNumber || "")
+      .replace(/[\s+-]/g, "");
     const cleanEmergencyPhone = patient.emergencyContactPhone
       ? patient.emergencyContactPhone.replace(/[\s+-]/g, "")
       : "";
@@ -393,26 +406,22 @@ export default function PatientManagementSystem() {
                 {[
                   {
                     label: "Total Registered Cards",
-                    value: "1,482",
-                    change: "+14.2%",
+                    value: patients.length,
                     color: "border-l-blue-500",
                   },
                   {
                     label: "Active Outpatient (OPD)",
-                    value: "842",
-                    change: "+8.6%",
+                    value: patients.filter((p) => (p.admissionType || "OPD") === "OPD").length,
                     color: "border-l-cyan-500",
                   },
                   {
                     label: "Active Inpatient (IPD)",
-                    value: "124",
-                    change: "+2.1%",
+                    value: patients.filter((p) => (p.admissionType || "OPD") === "IPD").length,
                     color: "border-l-amber-500",
                   },
                   {
                     label: "Emergency Admissions",
-                    value: "516",
-                    change: "+22.4%",
+                    value: patients.filter((p) => (p.admissionType || "OPD") === "Emergency").length,
                     color: "border-l-rose-500",
                   },
                 ].map((card, idx) => (
@@ -510,20 +519,20 @@ export default function PatientManagementSystem() {
                     {[
                       {
                         name: "Outpatient Department",
-                        count: "842 Profiled",
-                        pct: "65%",
+                        count: "0 Profiled",
+                        pct: "0%",
                         color: "bg-blue-500",
                       },
                       {
                         name: "Adult Emergency Clinic",
-                        count: "516 Profiled",
-                        pct: "88%",
+                        count: "0 Profiled",
+                        pct: "0%",
                         color: "bg-rose-500",
                       },
                       {
                         name: "Pediatric Admission",
-                        count: "124 Profiled",
-                        pct: "25%",
+                        count: "0 Profiled",
+                        pct: "0%",
                         color: "bg-amber-500",
                       },
                     ].map((triage, index) => (
@@ -907,14 +916,8 @@ export default function PatientManagementSystem() {
                       >
                         <option value="OPD">Outpatient Department (OPD)</option>
                         <option value="IPD">Inpatient Department (IPD)</option>
-                        <option value="Pedi">Pediatric Admission (Pedi)</option>
-                        <option value="Adult">Adult Emergency (Adult)</option>
-                        <option value="EMR">
-                          Electronic Emergency Ward (EMR)
-                        </option>
-                        <option value="DVW">
-                          Direct Verification Ward (DVW)
-                        </option>
+                        <option value="Emergency">Emergency Admission</option>
+                        <option value="Referral">Referral</option>
                       </select>
                     </div>
 
@@ -932,9 +935,8 @@ export default function PatientManagementSystem() {
                         <option value="Credit/Insurance">
                           Insurance Company Credit
                         </option>
-                        <option value="Free/Staff">
-                          Institutional Staff Waiver
-                        </option>
+                        <option value="Prepaid">Prepaid Deposit</option>
+                        <option value="Other">Other Modality</option>
                       </select>
                     </div>
                   </div>

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import {
   LineChart,
   Line,
@@ -249,7 +249,7 @@ const AdminDashboard = ({
     return headers;
   };
 
-  const fetchStaffData = async () => {
+  const fetchStaffData = useCallback(async () => {
     try {
       setIsLoading(true);
       const response = await fetch(`${API_URL}/api/staffs`, {
@@ -260,38 +260,41 @@ const AdminDashboard = ({
         throw new Error(result.message || "Unable to load staff data");
       setStaffList(result.data.map(normalizeStaff));
     } catch (error) {
-      alert(`Staff retrieval failed: ${error.message}`);
+      console.error("Staff fetch error:", error.message);
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [API_URL]);
 
-  const fetchPatientData = async () => {
+  const fetchPatientData = useCallback(async () => {
     try {
-      setIsLoading(true);
+      const token = localStorage.getItem("token")?.trim();
+      if (!token) return;
       const response = await fetch(`${API_URL}/api/patients`, {
         headers: getAuthHeaders(false),
       });
       const result = await response.json();
+      if (response.status === 401 || response.status === 403) return;
       if (!response.ok)
         throw new Error(result.message || "Unable to load patient data");
       setPatientsList(result.data.map(normalizePatient));
     } catch (error) {
-      alert(`Patient retrieval failed: ${error.message}`);
-    } finally {
-      setIsLoading(false);
+      console.error("Patient fetch error:", error.message);
     }
-  };
+  }, [API_URL]);
 
   useEffect(() => {
+    if (!user) return;
     fetchStaffData();
     fetchPatientData();
-  }, []);
+    const interval = setInterval(fetchPatientData, 5000);
+    return () => clearInterval(interval);
+  }, [user, fetchStaffData, fetchPatientData]);
 
   const distributionDataComputed = React.useMemo(() => {
     const counts = {};
     patientsList.forEach((p) => {
-      const key = p.status || "Unknown";
+      const key = p.admissionType || "OPD";
       counts[key] = (counts[key] || 0) + 1;
     });
     return Object.entries(counts).map(([name, value]) => ({ name, value }));
@@ -558,14 +561,14 @@ const AdminDashboard = ({
     if (activeTab === "staff") {
       return staffList.filter(
         (s) =>
-          s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          s.id.toLowerCase().includes(searchTerm.toLowerCase()),
+          (s.name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+          (s.id || "").toLowerCase().includes(searchTerm.toLowerCase()),
       );
     }
     return patientsList.filter(
       (p) =>
-        p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.id.toLowerCase().includes(searchTerm.toLowerCase()),
+        (p.name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (p.id || "").toLowerCase().includes(searchTerm.toLowerCase()),
     );
   };
 
@@ -2006,7 +2009,7 @@ const StatCardGraph = ({ label, value, color, bgColor, onAnchorAction }) => (
         View All →
       </button>
     </div>
-    <div className="absolute inset-0 top-12 opacity-20 group-hover:opacity-40 transition-opacity pointer-events-none">
+    <div className="absolute inset-0 top-12 h-28 opacity-20 group-hover:opacity-40 transition-opacity pointer-events-none">
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={generateSparklineData()}>
           <Line

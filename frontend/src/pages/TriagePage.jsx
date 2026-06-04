@@ -20,44 +20,14 @@ import {
 } from "lucide-react";
 
 export default function TriagePage({ onLogout }) {
-  const [activeTab, setActiveTab] = useState("dashboard"); // dashboard, waitingList, recordVitals
+  const [activeTab, setActiveTab] = useState("dashboard");
   const [selectedPatient, setSelectedPatient] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [triageFilter, setTriageFilter] = useState("All");
-  const hospitalLogo = "/mesra icon.png";
-
-  // Core Mock Waiting Queue
-  const [queue, setQueue] = useState([
-    {
-      id: "TR-0921",
-      name: "Tolosa Assefa",
-      age: "45",
-      gender: "Male",
-      arrivalTime: "09:12 AM",
-      complaint: "Severe crushing chest pain, radiating to left arm.",
-      status: "Pending",
-    },
-    {
-      id: "TR-0924",
-      name: "Chaltu Desta",
-      age: "29",
-      gender: "Female",
-      arrivalTime: "09:28 AM",
-      complaint: "High grade fever with persistent dry cough.",
-      status: "Pending",
-    },
-    {
-      id: "TR-0925",
-      name: "Mekonnen Kebede",
-      age: "62",
-      gender: "Male",
-      arrivalTime: "09:35 AM",
-      complaint: "Open fracture on right lower limb with active bleeding.",
-      status: "Pending",
-    },
-  ]);
-
-  // Vitals Registry State
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [redCriticalsToday, setRedCriticalsToday] = useState(0);
+  const [totalAssessedToday, setTotalAssessedToday] = useState(0);
   const [vitals, setVitals] = useState({
     bpSystolic: "",
     bpDiastolic: "",
@@ -70,6 +40,189 @@ export default function TriagePage({ onLogout }) {
     triageCategory: "",
     secondaryUrgencyNotes: "",
   });
+
+   // Dispatch state
+   const [dispatching, setDispatching] = useState(false);
+   const [dispatchStatus, setDispatchStatus] = useState(null); // null, 'success', 'error'
+   const [selectedDepartment, setSelectedDepartment] = useState("");
+   const [doctorsByDepartment, setDoctorsByDepartment] = useState([]);
+   const [selectedDoctor, setSelectedDoctor] = useState("");
+   const [departments, setDepartments] = useState([]);
+   const [departmentsLoading, setDepartmentsLoading] = useState(false);
+   const [departmentsError, setDepartmentsError] = useState("");
+  const hospitalLogo = "/mesra icon.png";
+
+  // API Configuration
+  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+  const token = localStorage.getItem("token");
+
+  const getAuthHeaders = (isJson = true) => {
+    const headers = {};
+    if (isJson) headers["Content-Type"] = "application/json";
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    return headers;
+  };
+
+  // Waiting Queue State
+  const [queue, setQueue] = useState([]);
+
+  // Fetch queue from backend on mount
+  useEffect(() => {
+    const fetchQueue = async () => {
+      try {
+        setLoading(true);
+        const response = await fetch(`${API_URL}/api/triage/queue`, {
+          headers: getAuthHeaders(),
+        });
+        if (!response.ok) throw new Error("Failed to fetch queue");
+        const data = await response.json();
+        setQueue(data.data || []);
+        setError("");
+      } catch (err) {
+        console.error("Error fetching queue:", err);
+        setError("Failed to load queue");
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchQueue();
+  }, [API_URL]);
+
+   // Fetch triage statistics from backend on mount
+   useEffect(() => {
+     const fetchStatistics = async () => {
+       try {
+         // Fetch red criticals today
+         const redCriticalsResponse = await fetch(`${API_URL}/api/triage/red-criticals-today`, {
+           headers: getAuthHeaders(),
+         });
+         if (!redCriticalsResponse.ok) throw new Error("Failed to fetch red criticals today");
+         const redCriticalsData = await redCriticalsResponse.json();
+         setRedCriticalsToday(redCriticalsData.count || 0);
+
+         // Fetch total assessed today
+         const totalAssessedResponse = await fetch(`${API_URL}/api/triage/total-assessed-today`, {
+           headers: getAuthHeaders(),
+         });
+         if (!totalAssessedResponse.ok) throw new Error("Failed to fetch total assessed today");
+         const totalAssessedData = await totalAssessedResponse.json();
+         setTotalAssessedToday(totalAssessedData.count || 0);
+       } catch (err) {
+         console.error("Error fetching triage statistics:", err);
+         // Don't set error state here to avoid overwhelming the user with error messages
+         // Just keep the default values (0)
+       }
+     };
+     fetchStatistics();
+   }, [API_URL]);
+
+   // Fetch departments from backend on mount
+   useEffect(() => {
+     const fetchDepartments = async () => {
+       try {
+         setDepartmentsLoading(true);
+         const response = await fetch(`${API_URL}/api/doctor/departments`, {
+           headers: getAuthHeaders(),
+         });
+         if (!response.ok) throw new Error("Failed to fetch departments");
+         const data = await response.json();
+         if (data.success) {
+           setDepartments(data.data || []);
+         } else {
+           setDepartmentsError(data.message || "Failed to fetch departments");
+         }
+       } catch (err) {
+         console.error("Error fetching departments:", err);
+         setDepartmentsError(err.message);
+       } finally {
+         setDepartmentsLoading(false);
+       }
+     };
+
+     fetchDepartments();
+   }, [API_URL]);
+
+  // Fetch departments from backend on mount
+  useEffect(() => {
+    const fetchDepartments = async () => {
+      try {
+        setDepartmentsLoading(true);
+        const storedToken = localStorage.getItem("token");
+        const response = await fetch(
+          `${API_URL}/api/doctor/departments`,
+          {
+            headers: {
+              Authorization: `Bearer ${storedToken}`,
+            },
+          },
+        );
+        if (!response.ok) {
+          throw new Error("Failed to fetch departments");
+        }
+        const data = await response.json();
+        if (data.success) {
+          setDepartments(data.data || []);
+          setDepartmentsError("");
+        } else {
+          setDepartmentsError(data.message || "Failed to load departments");
+        }
+      } catch (err) {
+        console.error("Error fetching departments:", err);
+        setDepartmentsError("Failed to load departments");
+      } finally {
+        setDepartmentsLoading(false);
+      }
+    };
+    fetchDepartments();
+  }, [API_URL]);
+
+   // Fetch doctors when department changes
+   useEffect(() => {
+     if (!selectedDepartment) {
+       setDoctorsByDepartment([]);
+       setSelectedDoctor("");
+       return;
+     }
+
+     const fetchDoctorsByDepartment = async () => {
+       try {
+         setDoctorsLoading(true);
+         const storedToken = localStorage.getItem("token");
+         const response = await fetch(
+           `${API_URL}/api/doctor/doctors/department/${selectedDepartment}`,
+           {
+             headers: {
+               Authorization: `Bearer ${storedToken}`,
+             },
+           },
+         );
+         if (!response.ok) {
+           const errorData = await response.json();
+           console.error("Failed to fetch doctors by department:", errorData);
+           setDoctorsByDepartment([]);
+           setSelectedDoctor("");
+           return;
+         }
+         const data = await response.json();
+         if (data.success) {
+           setDoctorsByDepartment(data.data || []);
+           if (data.data && data.data.length > 0) {
+             setSelectedDoctor(data.data[0]._id);
+           } else {
+             setSelectedDoctor("");
+           }
+         }
+        } catch (err) {
+         console.error("Error fetching doctors by department:", err);
+         setDoctorsByDepartment([]);
+         setSelectedDoctor("");
+       } finally {
+         setDoctorsLoading(false);
+       }
+     };
+
+     fetchDoctorsByDepartment();
+   }, [selectedDepartment, API_URL]);
 
   // Dynamic Triage Color Calculator based on Vitals Metrics
   useEffect(() => {
@@ -102,25 +255,81 @@ export default function TriagePage({ onLogout }) {
 
   const handleTriageSubmit = (e) => {
     e.preventDefault();
-    // Simulate real routing data serialization
-    alert(
-      `Vitals Logged Successfully! Patient ${selectedPatient.name} categorized as ${vitals.triageCategory} and dispatched to Doctor queue.`,
-    );
-    setQueue((prev) => prev.filter((p) => p.id !== selectedPatient.id));
-    setSelectedPatient(null);
-    setVitals({
-      bpSystolic: "",
-      bpDiastolic: "",
-      heartRate: "",
-      temperature: "",
-      spo2: "",
-      respiratoryRate: "",
-      weight: "",
-      randomBloodSugar: "",
-      triageCategory: "",
-      secondaryUrgencyNotes: "",
-    });
-    setActiveTab("waitingList");
+    // Vitals verified, now swap to routing dispatch panel interface
+    setDispatching(true);
+  };
+
+  // Handle Confirm Dispatch
+  const handleConfirmDispatch = async () => {
+    if (!selectedDepartment || !selectedDoctor) {
+      alert("Please select both department and doctor.");
+      return;
+    }
+
+    try {
+      const storedToken = localStorage.getItem("token");
+      const response = await fetch(
+        `${API_URL}/api/triage/${selectedPatient._id}/dispatch`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${storedToken}`,
+          },
+          body: JSON.stringify({
+            ...vitals,
+            department: selectedDepartment,
+            doctorId: selectedDoctor,
+            dispatchedBy: "Triage Officer",
+            dispatchedAt: new Date().toISOString(),
+          }),
+        },
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || "Failed to dispatch patient");
+      }
+
+      const result = await response.json();
+      if (!result.success) {
+        throw new Error(result.message || "Failed to dispatch patient");
+      }
+
+      setDispatchStatus("success");
+
+       // Remove from queue and reset state
+       setQueue((prev) => prev.filter((p) => p._id !== selectedPatient._id));
+       setSelectedPatient(null);
+       setVitals({
+         bpSystolic: "",
+         bpDiastolic: "",
+         heartRate: "",
+         temperature: "",
+         spo2: "",
+         respiratoryRate: "",
+         weight: "",
+         randomBloodSugar: "",
+         triageCategory: "",
+         secondaryUrgencyNotes: "",
+       });
+        setSelectedDepartment("");
+        setDoctorsByDepartment([]);
+        setSelectedDoctor("");
+       setDispatching(false);
+
+      // Show success brief feedback message then clear
+      setTimeout(() => {
+        setDispatchStatus(null);
+      }, 3000);
+
+      // Return to live queue stream screen
+      setActiveTab("waitingList");
+    } catch (err) {
+      setDispatchStatus("error");
+      alert(`Error: ${err.message}`);
+      console.error("Error dispatching patient:", err);
+    }
   };
 
   return (
@@ -146,6 +355,7 @@ export default function TriagePage({ onLogout }) {
 
           <nav className="p-4 space-y-1">
             <button
+              type="button"
               onClick={() => {
                 setActiveTab("dashboard");
                 setSelectedPatient(null);
@@ -155,6 +365,7 @@ export default function TriagePage({ onLogout }) {
               <LayoutDashboard size={16} /> Dashboard Stats
             </button>
             <button
+              type="button"
               onClick={() => {
                 setActiveTab("waitingList");
                 setSelectedPatient(null);
@@ -172,13 +383,10 @@ export default function TriagePage({ onLogout }) {
             <p>Clerk ID: NURSE_REMA</p>
           </div>
           <button
+            type="button"
             onClick={() => {
-              // 1. Session Cleansing Sequence
-              localStorage.clear(); // Flush application state & tokens from local cache
-              sessionStorage.clear(); // Purge temporary runtime session values
-
-              // 2. Client Routing Redirection
-              // Note: Utilizes window location interface to force absolute state refresh on login boundary
+              localStorage.clear();
+              sessionStorage.clear();
               window.location.href = "/login";
             }}
             className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-900 hover:bg-rose-950/40 border border-slate-800 hover:border-rose-900 text-slate-400 hover:text-rose-400 text-xs font-bold uppercase tracking-wider rounded-xl transition-all"
@@ -218,7 +426,7 @@ export default function TriagePage({ onLogout }) {
                   },
                   {
                     label: "Red Criticals Today",
-                    value: "3 Patients",
+                    value: `${redCriticalsToday} Patients`,
                     icon: <ShieldAlert size={18} />,
                     bg: "bg-rose-50 text-rose-600 border border-rose-100",
                   },
@@ -230,14 +438,14 @@ export default function TriagePage({ onLogout }) {
                   },
                   {
                     label: "Total Assessed Today",
-                    value: "42 Patients",
+                    value: `${totalAssessedToday} Patients`,
                     icon: <CheckCircle size={18} />,
                     bg: "bg-slate-100 text-slate-700",
                   },
                 ].map((stat, idx) => (
                   <div
                     key={idx}
-                    className={`p-5 rounded-2xl flex items-center justify-between shadow-sm bg-white border border-slate-200/60`}
+                    className="p-5 rounded-2xl flex items-center justify-between shadow-sm bg-white border border-slate-200/60"
                   >
                     <div>
                       <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
@@ -324,36 +532,57 @@ export default function TriagePage({ onLogout }) {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-xs font-medium text-slate-700">
-                    {queue.map((p) => (
-                      <tr
-                        key={p.id}
-                        className="hover:bg-slate-50/60 transition"
-                      >
-                        <td className="p-4 px-6 font-mono text-blue-600 font-bold">
-                          {p.id}
-                        </td>
-                        <td className="p-4 px-6 text-slate-900 font-bold text-sm">
-                          {p.name}
-                        </td>
-                        <td className="p-4 px-6">
-                          {p.gender} ({p.age} Yrs)
-                        </td>
-                        <td className="p-4 px-6 font-mono text-slate-500">
-                          {p.arrivalTime}
-                        </td>
-                        <td className="p-4 px-6 max-w-xs truncate text-slate-500">
-                          {p.complaint}
-                        </td>
-                        <td className="p-4 px-6 text-right">
-                          <button
-                            onClick={() => setSelectedPatient(p)}
-                            className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white text-[11px] font-black uppercase tracking-wider rounded-xl hover:bg-blue-700 transition shadow-sm"
-                          >
-                            Screen Vitals <ChevronRight size={12} />
-                          </button>
+                    {queue
+                      .filter(
+                        (p) =>
+                          p.patientName
+                            .toLowerCase()
+                            .includes(searchQuery.toLowerCase()) ||
+                          p.cardId
+                            .toLowerCase()
+                            .includes(searchQuery.toLowerCase()),
+                      )
+                      .map((p) => (
+                        <tr
+                          key={p._id}
+                          className="hover:bg-slate-50/60 transition"
+                        >
+                          <td className="p-4 px-6 font-mono text-blue-600 font-bold">
+                            {p.cardId}
+                          </td>
+                          <td className="p-4 px-6 text-slate-900 font-bold text-sm">
+                            {p.patientName}
+                          </td>
+                          <td className="p-4 px-6">
+                            {p.gender} ({p.age} Yrs)
+                          </td>
+                          <td className="p-4 px-6 font-mono text-slate-500">
+                            {p.registrationTime}
+                          </td>
+                          <td className="p-4 px-6 max-w-xs truncate text-slate-500">
+                            {p.chiefComplaint}
+                          </td>
+                          <td className="p-4 px-6 text-right">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedPatient(p)}
+                              className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white text-[11px] font-black uppercase tracking-wider rounded-xl hover:bg-blue-700 transition shadow-sm"
+                            >
+                              Screen Vitals <ChevronRight size={12} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    {queue.length === 0 && (
+                      <tr>
+                        <td
+                          colSpan="6"
+                          className="p-8 text-center text-slate-400 font-mono"
+                        >
+                          No patients waiting in queue intake.
                         </td>
                       </tr>
-                    ))}
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -361,16 +590,17 @@ export default function TriagePage({ onLogout }) {
           )}
 
           {/* VITALS ENTRY SCREEN */}
-          {selectedPatient && (
+          {activeTab === "waitingList" && selectedPatient && (
             <div className="max-w-4xl mx-auto bg-white border border-slate-200 rounded-3xl shadow-xl overflow-hidden animate-fadeIn text-slate-800">
               <div className="p-6 bg-slate-900 text-white flex justify-between items-center">
                 <div>
                   <h2 className="text-base font-bold uppercase tracking-wider">
-                    {selectedPatient.name}
+                    {selectedPatient.patientName}
                   </h2>
                   <p className="text-xs text-slate-400 mt-0.5">
                     Demographics: {selectedPatient.gender},{" "}
-                    {selectedPatient.age} Yrs | ID Token: {selectedPatient.id}
+                    {selectedPatient.age} Yrs | Queue Token:{" "}
+                    {selectedPatient.cardId}
                   </p>
                 </div>
                 <span className="bg-blue-600 text-white text-xs font-mono font-bold px-3 py-1 rounded-lg">
@@ -381,7 +611,7 @@ export default function TriagePage({ onLogout }) {
               <form onSubmit={handleTriageSubmit} className="p-8 space-y-6">
                 <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900">
                   <strong>Stated Complaint at Intake:</strong>{" "}
-                  {selectedPatient.complaint}
+                  {selectedPatient.chiefComplaint}
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-4 gap-5">
@@ -396,7 +626,8 @@ export default function TriagePage({ onLogout }) {
                       onChange={handleVitalChange}
                       placeholder="e.g. 120"
                       required
-                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      disabled={dispatching}
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
                     />
                   </div>
                   <div className="space-y-1.5">
@@ -410,7 +641,8 @@ export default function TriagePage({ onLogout }) {
                       onChange={handleVitalChange}
                       placeholder="e.g. 80"
                       required
-                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      disabled={dispatching}
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
                     />
                   </div>
                   <div className="space-y-1.5">
@@ -425,7 +657,8 @@ export default function TriagePage({ onLogout }) {
                       onChange={handleVitalChange}
                       placeholder="e.g. 72"
                       required
-                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      disabled={dispatching}
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
                     />
                   </div>
                   <div className="space-y-1.5">
@@ -441,7 +674,8 @@ export default function TriagePage({ onLogout }) {
                       onChange={handleVitalChange}
                       placeholder="e.g. 36.7"
                       required
-                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      disabled={dispatching}
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
                     />
                   </div>
                 </div>
@@ -458,7 +692,8 @@ export default function TriagePage({ onLogout }) {
                       onChange={handleVitalChange}
                       placeholder="e.g. 98"
                       required
-                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      disabled={dispatching}
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
                     />
                   </div>
                   <div className="space-y-1.5">
@@ -471,7 +706,8 @@ export default function TriagePage({ onLogout }) {
                       value={vitals.respiratoryRate}
                       onChange={handleVitalChange}
                       placeholder="e.g. 16"
-                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      disabled={dispatching}
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
                     />
                   </div>
                   <div className="space-y-1.5">
@@ -484,7 +720,8 @@ export default function TriagePage({ onLogout }) {
                       value={vitals.weight}
                       onChange={handleVitalChange}
                       placeholder="e.g. 70"
-                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      disabled={dispatching}
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
                     />
                   </div>
                   <div className="space-y-1.5">
@@ -497,7 +734,8 @@ export default function TriagePage({ onLogout }) {
                       value={vitals.randomBloodSugar}
                       onChange={handleVitalChange}
                       placeholder="e.g. 110"
-                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      disabled={dispatching}
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
                     />
                   </div>
                 </div>
@@ -524,26 +762,85 @@ export default function TriagePage({ onLogout }) {
                       name="secondaryUrgencyNotes"
                       value={vitals.secondaryUrgencyNotes}
                       onChange={handleVitalChange}
+                      disabled={dispatching}
                       placeholder="Visible physical symptoms, altered state, etc."
-                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
                     />
                   </div>
                 </div>
 
-                <div className="flex gap-3 justify-end pt-4 border-t border-slate-100">
+                <div className="flex flex-col sm:flex-row gap-4 justify-between items-end pt-6 border-t border-slate-100">
                   <button
                     type="button"
-                    onClick={() => setSelectedPatient(null)}
-                    className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-bold uppercase tracking-wider rounded-xl transition"
+                    onClick={() => {
+                      setSelectedPatient(null);
+                      setDispatching(false);
+                    }}
+                    className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-bold uppercase tracking-wider rounded-xl transition-all"
                   >
-                    Cancel
+                    Cancel Screening
                   </button>
-                  <button
-                    type="submit"
-                    className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold uppercase tracking-wider rounded-xl transition shadow-md"
-                  >
-                    Dispatch to Physician
-                  </button>
+
+                  {/* Dynamic Action Area: Trigger Vitals Submission or Confirm Dispatch Form */}
+                  {!dispatching ? (
+                    <button
+                      type="submit"
+                      className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-black uppercase tracking-wider rounded-xl transition-all shadow-md"
+                    >
+                      Verify Vitals & Route
+                    </button>
+                  ) : (
+                    <div className="flex flex-col sm:flex-row items-center gap-4 bg-slate-50 border border-slate-200 p-4 rounded-2xl w-full sm:w-auto">
+                       <div className="flex flex-col gap-2">
+                         <label className="text-[10px] font-black uppercase text-slate-400 font-mono">
+                           Department Assignment
+                         </label>
+                         <select
+                           value={selectedDepartment}
+                           onChange={(e) =>
+                             setSelectedDepartment(e.target.value)
+                           }
+                           className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:outline-none"
+                         >
+                           <option value="">Select Department</option>
+                           <option value="Pediatrics">Pediatrics</option>
+                           <option value="ENT (Otolaryngology)">ENT (Otolaryngology)</option>
+                           <option value="General Medicine">General Medicine</option>
+                           <option value="Surgery">Surgery</option>
+                           <option value="Obstetrics & Gynecology">Obstetrics & Gynecology</option>
+                           <option value="Orthopedics">Orthopedics</option>
+                         </select>
+                       </div>
+
+                      <div className="flex flex-col gap-2">
+                        <label className="text-[10px] font-black uppercase text-slate-400 font-mono">
+                          Physician Pool
+                        </label>
+                         <select
+                           disabled={doctorsByDepartment.length === 0}
+                           value={selectedDoctor || ""}
+                           onChange={(e) => setSelectedDoctor(e.target.value)}
+                           className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:outline-none disabled:opacity-50"
+                         >
+                           <option value="">Select Practitioner</option>
+                           {doctorsByDepartment.map((doc) => (
+                             <option key={doc._id} value={doc._id}>
+                               {doc.name}
+                             </option>
+                           ))}
+                         </select>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={handleConfirmDispatch}
+                        disabled={!selectedDepartment || !selectedDoctor}
+                        className="h-9 px-5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black uppercase tracking-wider rounded-xl transition-all shadow-md self-end disabled:opacity-50"
+                      >
+                        Confirm Dispatch
+                      </button>
+                    </div>
+                  )}
                 </div>
               </form>
             </div>

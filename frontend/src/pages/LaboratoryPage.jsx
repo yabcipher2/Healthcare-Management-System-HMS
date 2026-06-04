@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   FlaskConical,
   Activity,
@@ -25,88 +25,48 @@ export default function LaboratoryPage({ onLogout }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedOrder, setSelectedOrder] = useState(null);
   const hospitalLogo = "/mesra icon.png";
+  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+  const token = localStorage.getItem("token");
 
   // 1. Dynamic Laboratory Panels & Test Directory
-  const [labPanels] = useState([
-    {
-      code: "LAB-CBC",
-      name: "Complete Blood Count (CBC)",
-      section: "Hematology",
-      turnaround: "45 Mins",
-      cost: "Local Sync",
-      status: "Operational",
-    },
-    {
-      code: "LAB-LFT",
-      name: "Liver Function Test (LFT)",
-      section: "Clinical Chemistry",
-      turnaround: "2 Hours",
-      cost: "Local Sync",
-      status: "Operational",
-    },
-    {
-      code: "LAB-RBS",
-      name: "Random Blood Sugar (RBS)",
-      section: "Enzymology",
-      turnaround: "15 Mins",
-      cost: "Local Sync",
-      status: "Operational",
-    },
-    {
-      code: "LAB-WID",
-      name: "Widal & Weil-Felix Test",
-      section: "Serology",
-      turnaround: "1 Hour",
-      cost: "Local Sync",
-      status: "Operational",
-    },
-    {
-      code: "LAB-UA",
-      name: "Urinalysis Routine",
-      section: "Microscopy",
-      turnaround: "30 Mins",
-      cost: "Local Sync",
-      status: "Operational",
-    },
-    {
-      code: "LAB-CR",
-      name: "Serum Creatinine",
-      section: "Renal Panel",
-      turnaround: "1 Hour",
-      cost: "Local Sync",
-      status: "Operational",
-    },
-  ]);
+  const [labPanels, setLabPanels] = useState([]);
 
   // 2. Live Electronic Work Order Queue (Passed from Physicians)
-  const [orders, setOrders] = useState([
-    {
-      id: "LAB-9902",
-      patientName: "Almaz Tekle",
-      mrn: "MR-2026-004",
-      age: "38",
-      gender: "Female",
-      requestedBy: "Dr. Beza Kemal",
-      timestamp: "10:20 AM",
-      urgency: "High Priority",
-      panels: ["Complete Blood Count (CBC)", "Serum Creatinine"],
-      specimen: "Whole Blood (EDTA Tube)",
-      resultsLogged: { wbc: "", rbc: "", creatinine: "" },
-    },
-    {
-      id: "LAB-9905",
-      patientName: "Yusuf Mohammed",
-      mrn: "MR-2026-009",
-      age: "51",
-      gender: "Male",
-      requestedBy: "Dr. Beza Kemal",
-      timestamp: "10:45 AM",
-      urgency: "Routine",
-      panels: ["Random Blood Sugar (RBS)", "Urinalysis Routine"],
-      specimen: "Fluoride Blood & Random Urine",
-      resultsLogged: { rbs: "", protein: "", glucose: "" },
-    },
-  ]);
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  // Fetch lab panels and orders on component mount
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        const [panelsRes, ordersRes] = await Promise.all([
+          fetch(`${API_URL}/api/lab/panels`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+          fetch(`${API_URL}/api/lab/orders`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+        ]);
+
+        if (!panelsRes.ok || !ordersRes.ok)
+          throw new Error("Failed to fetch data");
+        const panelsData = await panelsRes.json();
+        const ordersData = await ordersRes.json();
+
+        setLabPanels(panelsData.data || []);
+        setOrders(ordersData.data || []);
+      } catch (err) {
+        setError(err.message);
+        console.error("Error fetching laboratory data:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [API_URL, token]);
 
   const handleResultChange = (panelKey, value) => {
     setSelectedOrder((prev) => ({
@@ -119,18 +79,40 @@ export default function LaboratoryPage({ onLogout }) {
   };
 
   // Submit Analyzed Results to Central EMR Server
-  const handleVerifyAndSubmit = (e) => {
+  const handleVerifyAndSubmit = async (e) => {
     e.preventDefault();
 
-    // Simulate dynamic diagnostic validation flags
-    alert(
-      `Laboratory Analysis Token ${selectedOrder.id} successfully authenticated, signed by Lab Tech, and released to Doctor EMR timeline.`,
-    );
+    try {
+      const response = await fetch(
+        `${API_URL}/api/lab/orders/${selectedOrder._id || selectedOrder.id}/result`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(selectedOrder.resultsLogged),
+        },
+      );
 
-    // Remove from active queue
-    setOrders((prev) => prev.filter((o) => o.id !== selectedOrder.id));
-    setSelectedOrder(null);
-    setActiveTab("activeOrders");
+      if (!response.ok) throw new Error("Failed to submit lab results");
+
+      alert(
+        `Laboratory Analysis Token ${selectedOrder.id} successfully authenticated, signed by Lab Tech, and released to Doctor EMR timeline.`,
+      );
+
+      // Remove from active queue
+      setOrders((prev) =>
+        prev.filter(
+          (o) => o._id !== selectedOrder._id && o.id !== selectedOrder.id,
+        ),
+      );
+      setSelectedOrder(null);
+      setActiveTab("activeOrders");
+    } catch (err) {
+      alert(`Error: ${err.message}`);
+      console.error("Error submitting lab results:", err);
+    }
   };
 
   return (
