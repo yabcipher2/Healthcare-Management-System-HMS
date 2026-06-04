@@ -29,9 +29,15 @@ export default function App() {
   const getPageFromRole = (role) => {
     const normalizedRole = role?.toLowerCase?.() || "";
     if (normalizedRole.includes("administrator")) return "admin";
+    if (normalizedRole.includes("pharmacist-cashier") || normalizedRole.includes("pharmacy cashier"))
+      return "pharmacy-cashier"; // Added role mapping for pharmacy cashier
+    if (normalizedRole.includes("laboratory-cashier") || normalizedRole.includes("lab cashier"))
+      return "lab-cashier"; // Added role mapping for lab cashier
     if (normalizedRole.includes("pharmacist")) return "pharmacy";
     if (normalizedRole.includes("laboratory") || normalizedRole.includes("lab"))
       return "laboratory";
+    if (normalizedRole.includes("ultrasound") || normalizedRole.includes("sono"))
+      return "ultrasound"; // Added ultrasound role mapping
     if (normalizedRole.includes("doctor")) return "doctor";
     if (normalizedRole.includes("reception")) return "reception";
     if (normalizedRole.includes("ward") || normalizedRole.includes("charge"))
@@ -82,6 +88,9 @@ export default function App() {
     "doctor",
     "pharmacy",
     "laboratory",
+    "ultrasound", // Added ultrasound to the validation engine
+    "lab-cashier", // Added lab cashier route protection token
+    "pharmacy-cashier", // Added pharmacy cashier route protection token
     "admin",
     "home",
     "demo",
