@@ -24,183 +24,114 @@ export default function PharmacyPage({ onLogout }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedOrder, setSelectedOrder] = useState(null);
   const hospitalLogo = "/mesra icon.png";
+  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+  const token = localStorage.getItem("token");
 
-  // 1. Comprehensive Master Medicine Stock Database
-  const [inventory, setInventory] = useState([
-    {
-      id: "MED-001",
-      name: "Amoxicillin",
-      formulation: "Capsule",
-      strength: "500mg",
-      batch: "AMX-2026",
-      stock: 1420,
-      minLevel: 300,
-      shelf: "Rack A-3",
-      status: "In Stock",
-    },
-    {
-      id: "MED-002",
-      name: "Paracetamol (Panadol)",
-      formulation: "Tablet",
-      strength: "500mg",
-      batch: "PAR-9912",
-      stock: 4500,
-      minLevel: 500,
-      shelf: "Rack A-1",
-      status: "In Stock",
-    },
-    {
-      id: "MED-003",
-      name: "Metformin",
-      formulation: "Tablet",
-      strength: "850mg",
-      batch: "MET-4401",
-      stock: 180,
-      minLevel: 250,
-      shelf: "Rack B-2",
-      status: "Low Stock",
-    },
-    {
-      id: "MED-004",
-      name: "Ceftriaxone",
-      formulation: "Injection",
-      strength: "1g",
-      batch: "CEF-7721",
-      stock: 95,
-      minLevel: 100,
-      shelf: "Cold Fridge 1",
-      status: "Low Stock",
-    },
-    {
-      id: "MED-005",
-      name: "Omeprazole",
-      formulation: "Capsule",
-      strength: "20mg",
-      batch: "OMP-1102",
-      stock: 2400,
-      minLevel: 400,
-      shelf: "Rack C-1",
-      status: "In Stock",
-    },
-    {
-      id: "MED-006",
-      name: "Atorvastatin",
-      formulation: "Tablet",
-      strength: "20mg",
-      batch: "ATR-5562",
-      stock: 0,
-      minLevel: 200,
-      shelf: "Rack B-4",
-      status: "Out of Stock",
-    },
-    {
-      id: "MED-007",
-      name: "Salbutamol Inhaler",
-      formulation: "Inhaler",
-      strength: "100mcg",
-      batch: "SAL-8890",
-      stock: 320,
-      minLevel: 50,
-      shelf: "Rack D-2",
-      status: "In Stock",
-    },
-    {
-      id: "MED-008",
-      name: "Insulin Glargine",
-      formulation: "Injection Pen",
-      strength: "100 U/mL",
-      batch: "INS-0023",
-      stock: 42,
-      minLevel: 30,
-      shelf: "Cold Fridge 2",
-      status: "In Stock",
-    },
-  ]);
+  // Medicine Stock Database
+  const [inventory, setInventory] = useState([]);
 
-  // 2. Incoming E-Prescription Routing Queue (Passed from Physicians)
-  const [orders, setOrders] = useState([
-    {
-      id: "RX-4409",
-      patientName: "Almaz Tekle",
-      mrn: "MR-2026-004",
-      age: "38",
-      doctorName: "Dr. Beza Kemal",
-      timestamp: "10:15 AM",
-      status: "Pending",
-      medications: [
-        {
-          name: "Amoxicillin",
-          formulation: "Capsule",
-          strength: "500mg",
-          dosage: "1 Cap",
-          frequency: "Three Times Daily (TID)",
-          duration: "7 Days",
-          quantityRequired: 21,
-        },
-        {
-          name: "Paracetamol (Panadol)",
-          formulation: "Tablet",
-          strength: "500mg",
-          dosage: "2 Tabs",
-          frequency: "As Needed (PRN)",
-          duration: "3 Days",
-          quantityRequired: 12,
-        },
-      ],
-    },
-    {
-      id: "RX-4412",
-      patientName: "Yusuf Mohammed",
-      mrn: "MR-2026-009",
-      age: "51",
-      doctorName: "Dr. Beza Kemal",
-      timestamp: "10:38 AM",
-      status: "Pending",
-      medications: [
-        {
-          name: "Omeprazole",
-          formulation: "Capsule",
-          strength: "20mg",
-          dosage: "1 Cap",
-          frequency: "Once Daily (OD)",
-          duration: "30 Days",
-          quantityRequired: 30,
-        },
-      ],
-    },
-  ]);
+  // Prescription Orders Queue
+  const [orders, setOrders] = useState([]);
+  const [todayDispensedCount, setTodayDispensedCount] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  // Doctor Dispatch State
+  const [selectedDepartment, setSelectedDepartment] = useState("");
+  const [doctorsByDepartment, setDoctorsByDepartment] = useState([]);
+  const [dispatchingDoctor, setDispatchingDoctor] = useState(false);
+  const [dispatchStatus, setDispatchStatus] = useState(null); // null, 'success', 'error'
+
+  // Fetch inventory and orders on component mount
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        const [inventoryRes, ordersRes] = await Promise.all([
+          fetch(`${API_URL}/api/pharmacy/inventory`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+          fetch(`${API_URL}/api/pharmacy/orders`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+        ]);
+
+        if (!inventoryRes.ok || !ordersRes.ok)
+          throw new Error("Failed to fetch data");
+        const invData = await inventoryRes.json();
+        const ordersData = await ordersRes.json();
+
+        setInventory(invData.data || []);
+        setOrders(ordersData.data || []);
+      } catch (err) {
+        setError(err.message);
+        console.error("Error fetching pharmacy data:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [API_URL, token]);
+
+  // Calculate today's dispensed count whenever orders change
+  useEffect(() => {
+    if (orders.length === 0) {
+      setTodayDispensedCount(0);
+      return;
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const count = orders.filter((order) => {
+      // Check if order is dispensed (either status or dispenseStatus)
+      const isDispensed =
+        order.status === "Dispensed" || order.dispenseStatus === "Dispensed";
+      if (!isDispensed) return false;
+
+      // Check if order was created today (timestamp is stored as ISO string)
+      const orderDate = new Date(order.timestamp);
+      return orderDate >= today;
+    }).length;
+
+    setTodayDispensedCount(count);
+  }, [orders]);
 
   // Handle Dispatch/Dispense Verification
-  const handleDispenseSubmit = (orderId) => {
-    // Dynamically deduct counts from master inventory mock store
-    const targetOrder = orders.find((o) => o.id === orderId);
+  const handleDispenseSubmit = async (orderId) => {
+    try {
+      const response = await fetch(
+        `${API_URL}/api/pharmacy/orders/${orderId}/dispense`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+        },
+      );
 
-    setInventory((prevInv) => {
-      return prevInv.map((item) => {
-        const matchingMed = targetOrder.medications.find(
-          (m) => m.name === item.name,
-        );
-        if (matchingMed) {
-          const updatedStock = Math.max(
-            0,
-            item.stock - matchingMed.quantityRequired,
-          );
-          let newStatus = "In Stock";
-          if (updatedStock === 0) newStatus = "Out of Stock";
-          else if (updatedStock <= item.minLevel) newStatus = "Low Stock";
+      if (!response.ok) throw new Error("Failed to dispense prescription");
 
-          return { ...item, stock: updatedStock, status: newStatus };
-        }
-        return item;
+      // Remove from active queue
+      setOrders((prevOrders) => prevOrders.filter((o) => o._id !== orderId));
+      setSelectedOrder(null);
+
+      // Refresh inventory
+      const invResponse = await fetch(`${API_URL}/api/pharmacy/inventory`, {
+        headers: { Authorization: `Bearer ${token}` },
       });
-    });
+      const invData = await invResponse.json();
+      setInventory(invData.data || []);
 
-    // Remove from active queue
-    setOrders((prevOrders) => prevOrders.filter((o) => o.id !== orderId));
-    setSelectedOrder(null);
-    alert(
-      `E-Prescription ${orderId} successfully logged, structural barcodes validated, and dispensed to patient.`,
-    );
+      alert(
+        `E-Prescription ${orderId} successfully logged, structural barcodes validated, and dispensed to patient.`,
+      );
+    } catch (err) {
+      alert(`Error: ${err.message}`);
+      console.error("Error dispensing prescription:", err);
+    }
   };
 
   return (
@@ -268,7 +199,6 @@ export default function PharmacyPage({ onLogout }) {
               sessionStorage.clear(); // Purge temporary runtime session values
 
               // 2. Client Routing Redirection
-              // Note: Utilizes window location interface to force absolute state refresh on login boundary
               window.location.href = "/login";
             }}
             className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-900 hover:bg-rose-950/40 border border-slate-800 hover:border-rose-900 text-slate-400 hover:text-rose-400 text-xs font-bold uppercase tracking-wider rounded-xl transition-all"
@@ -325,13 +255,13 @@ export default function PharmacyPage({ onLogout }) {
                   },
                   {
                     label: "Total Dispensed Today",
-                    value: "114 Orders",
+                    value: `${todayDispensedCount} Orders`,
                     icon: <TrendingUp size={18} />,
                     bg: "bg-emerald-50 text-emerald-600 border border-emerald-100",
                   },
                 ].map((stat, idx) => (
                   <div
-                    key={idx}
+                    key={stat.label}
                     className="p-5 rounded-2xl flex items-center justify-between shadow-sm bg-white border border-slate-200/60"
                   >
                     <div>
@@ -400,11 +330,11 @@ export default function PharmacyPage({ onLogout }) {
                     ) : (
                       orders.map((order) => (
                         <tr
-                          key={order.id}
+                          key={order._id}
                           className="hover:bg-slate-50/60 transition-all"
                         >
                           <td className="p-4 px-6 font-mono text-blue-600 font-bold">
-                            {order.id}
+                            {order.orderId}
                           </td>
                           <td className="p-4 px-6 text-slate-900 font-bold text-sm">
                             {order.patientName}{" "}
@@ -447,7 +377,8 @@ export default function PharmacyPage({ onLogout }) {
                     {selectedOrder.patientName}
                   </h2>
                   <p className="text-xs text-slate-400 font-mono mt-0.5">
-                    MRN ID: {selectedOrder.mrn} | Order Node: {selectedOrder.id}
+                    MRN ID: {selectedOrder.mrn} | Order Node:{" "}
+                    {selectedOrder.orderId}
                   </p>
                 </div>
                 <button
@@ -461,8 +392,7 @@ export default function PharmacyPage({ onLogout }) {
               <div className="p-8 space-y-6">
                 <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl flex justify-between items-center text-xs">
                   <div>
-                    <strong>Prescribing Physician:</strong>{" "}
-                    {selectedOrder.doctorName}
+                    <strong>Prescribed By:</strong> {selectedOrder.doctorName}
                   </div>
                   <div className="font-mono text-slate-400">
                     Routed timestamp: {selectedOrder.timestamp}
@@ -474,46 +404,47 @@ export default function PharmacyPage({ onLogout }) {
                 </h3>
 
                 <div className="space-y-4">
-                  {selectedOrder.medications.map((med, index) => {
-                    // Match with inventory records to locate shelf location dynamically
-                    const invItem =
-                      inventory.find((i) => i.name === med.name) || {};
-                    return (
-                      <div
-                        key={index}
-                        className="p-5 border border-slate-200 rounded-2xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white hover:bg-slate-50/50"
-                      >
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2">
-                            <h4 className="font-bold text-sm text-slate-900">
-                              {med.name} {med.strength}
-                            </h4>
-                            <span className="bg-slate-100 text-slate-600 font-mono text-[10px] px-2 py-0.5 rounded-md">
-                              {med.formulation}
+                  {selectedOrder.medications &&
+                    selectedOrder.medications.map((med, index) => {
+                      const medKey = `${selectedOrder.orderId}-med-${index}`;
+                      const invItem =
+                        inventory.find((i) => i.name === med.name) || {};
+                      return (
+                        <div
+                          key={medKey}
+                          className="p-5 border border-slate-200 rounded-2xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white hover:bg-slate-50/50"
+                        >
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <h4 className="font-bold text-sm text-slate-900">
+                                {med.name} {med.strength}
+                              </h4>
+                              <span className="bg-slate-100 text-slate-600 font-mono text-[10px] px-2 py-0.5 rounded-md">
+                                {med.formulation}
+                              </span>
+                            </div>
+                            <p className="text-xs text-slate-500 font-medium">
+                              {med.dosage} —{" "}
+                              <span className="text-blue-600 font-bold">
+                                {med.frequency}
+                              </span>{" "}
+                              for {med.duration}
+                            </p>
+                          </div>
+                          <div className="text-left sm:text-right font-mono text-xs">
+                            <span className="block text-slate-400 text-[10px] font-bold uppercase tracking-wider">
+                              Required Qty
+                            </span>
+                            <span className="text-sm font-black text-slate-900">
+                              {med.quantityRequired} Units
+                            </span>
+                            <span className="block text-blue-600 text-[10px] font-bold mt-1 bg-blue-50 px-2 py-0.5 rounded-md">
+                              {invItem.shelf || "N/A Shelf"}
                             </span>
                           </div>
-                          <p className="text-xs text-slate-500 font-medium">
-                            {med.dosage} —{" "}
-                            <span className="text-blue-600 font-bold">
-                              {med.frequency}
-                            </span>{" "}
-                            for {med.duration}
-                          </p>
                         </div>
-                        <div className="text-left sm:text-right font-mono text-xs">
-                          <span className="block text-slate-400 text-[10px] font-bold uppercase tracking-wider">
-                            Required Qty
-                          </span>
-                          <span className="text-sm font-black text-slate-900">
-                            {med.quantityRequired} Units
-                          </span>
-                          <span className="block text-blue-600 text-[10px] font-bold mt-1 bg-blue-50 px-2 py-0.5 rounded-md">
-                            {invItem.shelf || "N/A Shelf"}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
                 </div>
 
                 <div className="flex gap-3 justify-end pt-6 border-t border-slate-100">
@@ -526,8 +457,8 @@ export default function PharmacyPage({ onLogout }) {
                   </button>
                   <button
                     type="button"
-                    onClick={() => handleDispenseSubmit(selectedOrder.id)}
-                    className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold uppercase tracking-wider rounded-xl transition-all shadow-md flex items-center gap-2"
+                    onClick={() => handleDispenseSubmit(selectedOrder._id)}
+                    className="inline-flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-black uppercase tracking-wider rounded-xl transition-all shadow-lg shadow-blue-200"
                   >
                     <ShieldCheck size={14} /> Authorize & Dispense Formula
                   </button>

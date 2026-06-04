@@ -6,8 +6,6 @@ import {
   Phone,
   MapPin,
   ChevronRight,
-  Stethoscope,
-  Clock,
   ShieldCheck,
   Menu,
   X,
@@ -17,11 +15,13 @@ import {
   Layout,
   Check,
   ArrowRight,
+  Clock,
 } from "lucide-react";
 
 const LandingPage = ({ onLoginClick, onDemoClick }) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
+  const [imageFailed, setImageFailed] = useState(false); // Duplicate removed
 
   const toggleVisibility = () => {
     window.pageYOffset > 300 ? setIsVisible(true) : setIsVisible(false);
@@ -51,12 +51,6 @@ const LandingPage = ({ onLoginClick, onDemoClick }) => {
               Mesra <span className="text-slate-900 not-italic">Digital</span>
             </span>
           </div>
-          {/* =======================================================================
-  PUBLIC FACING PORTAL ACCELERATOR BUTTON
-  =======================================================================
-  Purpose: Allows the Admissions Clerk/Admin to quickly jump out to the 
-  public-facing landing page marketing layer without destroying the active session.
-*/}
 
           <div className="hidden md:flex items-center gap-8 font-medium">
             <a
@@ -95,7 +89,7 @@ const LandingPage = ({ onLoginClick, onDemoClick }) => {
           </div>
         </div>
 
-        {/* 2. MOBILE MENU FIX */}
+        {/* 2. MOBILE MENU */}
         {isMenuOpen && (
           <div className="md:hidden bg-white border-b border-slate-200 py-8 px-6 space-y-6 flex flex-col animate-slide-down shadow-xl relative z-[90]">
             <a
@@ -174,13 +168,26 @@ const LandingPage = ({ onLoginClick, onDemoClick }) => {
                 </button>
               </div>
             </div>
+
+            {/* FIXED IMAGE BLOCK */}
             <div className="relative animate-fade-in-up">
               <div className="bg-blue-600/10 absolute -inset-4 rounded-3xl -rotate-2"></div>
-              <img
-                src="https://images.unsplash.com/photo-1576091160550-2173bdb999ef?auto=format&fit=crop&q=80&w=800"
-                alt="Mesra Dashboard"
-                className="rounded-2xl shadow-2xl relative z-10 border border-white"
-              />
+              {typeof window !== "undefined" &&
+              navigator.onLine &&
+              !imageFailed ? (
+                <img
+                  src="https://images.unsplash.com/photo-1576091160550-2173bdb999ef?auto=format&fit=crop&q=80&w=800"
+                  alt="Mesra Dashboard"
+                  className="rounded-2xl shadow-2xl relative z-10 border border-white w-full object-cover"
+                  onError={() => setImageFailed(true)}
+                />
+              ) : (
+                <div className="rounded-2xl shadow-2xl relative z-10 border border-white bg-blue-500/20 flex items-center justify-center min-h-[400px]">
+                  <span className="text-[#2563EB] text-xl font-bold">
+                    Mesra Dashboard
+                  </span>
+                </div>
+              )}
             </div>
           </div>
         </section>
@@ -515,7 +522,7 @@ const LandingPage = ({ onLoginClick, onDemoClick }) => {
                 <li>
                   <button
                     onClick={onDemoClick}
-                    className="hover:text-white transition"
+                    className="hover:text-white transition text-left"
                   >
                     Request Demo
                   </button>

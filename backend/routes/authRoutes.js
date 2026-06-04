@@ -114,4 +114,27 @@ router.post("/login", async (req, res) => {
   }
 });
 
+// @route   GET /api/auth/me (Protected)
+router.get("/me", protectRoute, async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id).select("-password");
+    let staffProfile = null;
+    if (user.staffId) {
+      staffProfile = await StaffProfile.findOne({ staffId: user.staffId });
+    }
+    res.json({
+      success: true,
+      data: {
+        ...user._doc,
+        staffProfile,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+});
+
 module.exports = router;

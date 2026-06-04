@@ -111,9 +111,30 @@ const fetchRecordsByStatus = async (req, res) => {
 // @route   PUT /api/patients/:id
 const modifyWorkflow = async (req, res) => {
   try {
+    const {
+      phoneNumber,
+      _id,
+      ...body
+    } = req.body;
+
+    const updatePayload = {
+      ...body,
+      contactNumber: phoneNumber || body.contactNumber,
+    };
+
+    if (updatePayload.admissionType && !["OPD", "IPD", "Emergency", "Referral"].includes(updatePayload.admissionType)) {
+      delete updatePayload.admissionType;
+    }
+    if (updatePayload.paymentType && !["Cash", "Credit/Insurance", "Prepaid", "Other"].includes(updatePayload.paymentType)) {
+      delete updatePayload.paymentType;
+    }
+    if (updatePayload.age !== undefined) {
+      updatePayload.age = Number(updatePayload.age);
+    }
+
     const updatedRecord = await PatientRecord.findByIdAndUpdate(
       req.params.id,
-      req.body,
+      updatePayload,
       { new: true, runValidators: true },
     );
     if (!updatedRecord) {
