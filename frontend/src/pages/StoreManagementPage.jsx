@@ -1,16 +1,19 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   Boxes,
   Search,
   LogOut,
   ShieldAlert,
+  ShieldCheck,
   FolderSync,
   PlusCircle,
   AlertTriangle,
   CheckCircle,
   TrendingDown,
   Heart,
+  FileText,
 } from "lucide-react";
+import { logAudit, fetchAuditLogs, fetchAuditAlertsCount } from "../utils/audit";
 
 export default function StoreManagementPage({ onLogout }) {
   const [activeTab, setActiveTab] = useState("medicines");
@@ -24,6 +27,42 @@ export default function StoreManagementPage({ onLogout }) {
   const hospitalLogo = "/mesra icon.png";
   const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
   const token = localStorage.getItem("token");
+  const [auditAlertsCount, setAuditAlertsCount] = useState(0);
+  const [auditLogs, setAuditLogs] = useState([]);
+  const [auditLogsLoading, setAuditLogsLoading] = useState(false);
+  const [auditLogsError, setAuditLogsError] = useState("");
+
+  const loadAuditAlertsCount = useCallback(async () => {
+    try {
+      const data = await fetchAuditAlertsCount();
+      setAuditAlertsCount(data);
+    } catch {
+      // Silently fail audit count fetch - non-critical
+    }
+  }, []);
+
+  const loadAuditLogs = useCallback(async () => {
+    setAuditLogsLoading(true);
+    setAuditLogsError("");
+    try {
+      const result = await fetchAuditLogs({ page: 1, limit: 20 });
+      setAuditLogs(result.data || []);
+    } catch (err) {
+      setAuditLogsError(err.message || "Failed to load audit logs");
+    } finally {
+      setAuditLogsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadAuditAlertsCount();
+    loadAuditLogs();
+  }, [loadAuditAlertsCount, loadAuditLogs]);
+
+  useEffect(() => {
+    const interval = setInterval(() => loadAuditAlertsCount(), 30000);
+    return () => clearInterval(interval);
+  }, [loadAuditAlertsCount]);
 
   useEffect(() => {
     const fetchInventory = async () => {
@@ -150,8 +189,18 @@ export default function StoreManagementPage({ onLogout }) {
               }}
               className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all ${activeTab === "non-medicines" ? "bg-blue-600 text-white shadow-lg shadow-blue-600/20" : "text-slate-600 hover:bg-slate-100"}`}
             >
-              <FolderSync size={16} />
-              Non-Medicines (Consumables)
+               <FolderSync size={16} />
+               Non-Medicines (Consumables)
+            </button>
+            <button
+              onClick={() => {
+                setActiveTab("storeAudit");
+                loadAuditLogs();
+              }}
+              className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all ${activeTab === "storeAudit" ? "bg-rose-50 text-rose-600" : "text-slate-600 hover:bg-slate-100"}`}
+            >
+               <ShieldAlert size={16} />
+               Audit Activity ({auditAlertsCount})
             </button>
           </nav>
         </div>
@@ -173,6 +222,7 @@ export default function StoreManagementPage({ onLogout }) {
       </aside>
 
       {/* MAIN VIEWPORT PANEL */}
+      <StatusBanner />
       <div className="flex-1 flex flex-col min-w-0">
         <header className="bg-white border-b border-slate-200 px-8 py-4 z-20 flex justify-between items-center shadow-sm">
           <h1 className="text-base font-bold tracking-wider text-slate-800 uppercase font-mono flex items-center gap-2">
@@ -370,6 +420,51 @@ export default function StoreManagementPage({ onLogout }) {
             )}
           </div>
         </main>
+
+        {activeTab === "storeAudit" && (
+          <div className="space-y-6 animate-fadeIn">
+            <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/30">
+                <div>
+                  <h1 className="text-2xl font-black text-slate-900">Department Audit Logs</h1>
+                  <p className="text-slate-400 font-medium mt-1">Your recent activity and department changes</p>
+                </div>
+                <span className="text-xs font-mono font-bold bg-rose-50 text-rose-600 border border-rose-100 px-3 py-1.5 rounded-lg uppercase">My Department</span>
+              </div>
+              {auditLogsError && (
+                <div className="mx-6 mt-6 p-4 bg-rose-50 border border-rose-200 rounded-xl text-xs font-bold text-rose-700">{auditLogsError}</div>
+              )}
+              {auditLogsLoading ? (
+                <div className="p-10 text-center text-xs font-black text-slate-400 uppercase tracking-wider">Loading audit logs...</div>
+              ) : auditLogs.length === 0 ? (
+                <div className="p-10 text-center text-xs font-black text-slate-400 uppercase tracking-wider">No audit logs found for your department</div>
+              ) : (
+                <div className="divide-y divide-slate-100">
+                  {auditLogs.map((log) => (
+                    <div key={log._id || log.id} className="p-5 flex items-start gap-4 hover:bg-slate-50/50 transition">
+                      <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center shrink-0 text-slate-500">
+                        {log.action === "CREATE" && <PlusCircle size={18} />}
+                        {log.action === "UPDATE" && <FileText size={18} />}
+                        {log.action === "DELETE" && <X size={18} />}
+                        {["ACTIVATE","DEACTIVATE","RESTORE","ARCHIVE"].includes(log.action) && <Activity size={18} />}
+                        {log.action === "LOGIN" && <LogOut size={18} />}
+                        {!["CREATE","UPDATE","DELETE","ACTIVATE","DEACTIVATE","RESTORE","ARCHIVE","LOGIN"].includes(log.action) && <ClipboardList size={18} />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs font-black text-slate-900 uppercase">{log.module}</span>
+                          <span className="text-[10px] font-mono font-bold bg-blue-50 text-blue-600 px-2 py-0.5 rounded uppercase">{log.action}</span>
+                        </div>
+                        <p className="text-xs text-slate-600 mt-1 leading-relaxed">{log.details}</p>
+                        <p className="text-[10px] text-slate-400 mt-1.5 font-mono">{log.userName} • {log.userRole} • {log.department || '—'} • {new Date(log.createdAt).toLocaleString()}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

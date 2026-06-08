@@ -1,5 +1,25 @@
 const LabOrder = require("../models/LabOrder");
 const PatientRecord = require("../models/PatientRecord");
+const AuditLog = require("../models/AuditLog");
+
+const logAudit = async (req, action, module, details, targetId = "") => {
+  try {
+    await AuditLog.create({
+      action,
+      module,
+      userId: req.user?._id || req.user?.id || "unknown",
+      userName: req.user?.name || "Unknown",
+      userRole: req.user?.role || "unknown",
+      department: req.user?.dept || "",
+      targetId,
+      targetType: "LabOrder",
+      details,
+      ipAddress: req.ip || "",
+    });
+  } catch (err) {
+    console.error("Audit log failed:", err.message);
+  }
+};
 
 const getLabPanels = async (req, res) => {
   try {
@@ -103,6 +123,8 @@ const createLabOrder = async (req, res) => {
       });
     }
 
+    await logAudit(req, "CREATE", "Laboratory", `Lab order ${order.accessionId} created for ${order.patientName}`, order._id);
+
     res.status(201).json({ success: true, data: order });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
@@ -111,11 +133,22 @@ const createLabOrder = async (req, res) => {
 
 const submitLabResults = async (req, res) => {
   try {
-    const { results } = req.body;
+    const { results, diagnosisReport } = req.body;
+    const updatePayload = {
+      status: "Completed",
+      updatedAt: new Date(),
+    };
+    if (results !== undefined) {
+      updatePayload.results = results;
+    }
+    if (diagnosisReport !== undefined) {
+      updatePayload.diagnosisReport = diagnosisReport;
+    }
+
     const order = await LabOrder.findByIdAndUpdate(
       req.params.id,
-      { status: "Completed", results: results || {}, updatedAt: new Date() },
-      { new: true, runValidators: true },
+      updatePayload,
+      { returnDocument: "after", runValidators: true },
     );
 
     if (!order) {
@@ -127,13 +160,15 @@ const submitLabResults = async (req, res) => {
     if (order.linkedPatient) {
       await PatientRecord.findByIdAndUpdate(order.linkedPatient, {
         "laboratory.testResults": results || {},
+        "laboratory.diagnosisReport": diagnosisReport || "",
         "laboratory.labStatus": "Completed",
-        currentStatus: "Pharmacy",
+        currentStatus: "Consultation",
       });
     }
 
     res.status(200).json({ success: true, data: order });
   } catch (error) {
+    console.error("Error submitting lab results:", error);
     res.status(400).json({ success: false, message: error.message });
   }
 };

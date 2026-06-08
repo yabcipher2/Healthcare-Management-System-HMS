@@ -2,8 +2,9 @@ const express = require("express");
 const dotenv = require("dotenv");
 const cors = require("cors");
 const connectDB = require("./config/db");
+const maintenanceMiddleware = require("./middleware/maintenanceMiddleware");
 
-// Load settings environment format [cite: 19, 23]
+// Load settings environment format
 dotenv.config();
 
 const app = express();
@@ -11,11 +12,11 @@ const app = express();
 const startServer = async () => {
   await connectDB();
 
-  // --- PAYLOAD PARSING MIDDLEWARE ---
   app.use(express.json());
   app.use(cors());
 
-  // --- ENDPOINT ROUTING MOUNTS ---
+  app.use(maintenanceMiddleware);
+
   app.use("/api/auth", require("./routes/authRoutes"));
   app.use("/api/staffs", require("./routes/staffRoutes"));
   app.use("/api/patients", require("./routes/patientRoutes"));
@@ -27,6 +28,8 @@ const startServer = async () => {
   app.use("/api/store", require("./routes/storeRoutes"));
   app.use("/api/lab", require("./routes/labRoutes"));
   app.use("/api/pharmacy", require("./routes/pharmacyRoutes"));
+  app.use("/api/system", require("./routes/systemRoutes"));
+  app.use("/api/audit", require("./routes/auditRoutes"));
 
   // Base sanity framework fallback checkpoint route
   app.get("/", (req, res) => {

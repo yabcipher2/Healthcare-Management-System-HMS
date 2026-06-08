@@ -49,7 +49,7 @@ const updateNurseNotes = async (req, res) => {
     const assignment = await NurseAssignment.findByIdAndUpdate(
       req.params.id,
       { nurseNotes, medicationAdministered },
-      { new: true, runValidators: true }
+      { returnDocument: "after", runValidators: true }
     );
     if (!assignment) return res.status(404).json({ success: false, message: "Assignment not found." });
     res.status(200).json({ success: true, data: assignment });
@@ -64,7 +64,7 @@ const updateCareStatus = async (req, res) => {
     const assignment = await NurseAssignment.findByIdAndUpdate(
       req.params.id,
       { status: careStatusUpdate },
-      { new: true, runValidators: true }
+      { returnDocument: "after", runValidators: true }
     );
     if (!assignment) return res.status(404).json({ success: false, message: "Assignment not found." });
     res.status(200).json({ success: true, data: assignment });

@@ -69,17 +69,19 @@ const createStaff = async (req, res) => {
     if (shouldCreateUser) {
       const existingUser = await User.findOne({ email: payload.email });
       if (existingUser) {
-        return res
-          .status(400)
-          .json({ success: false, message: "Email already registered." });
+        existingUser.dept = payload.dept;
+        existingUser.role = payload.role || mapJobTitleToRole(payload.jobTitle) || existingUser.role;
+        await existingUser.save();
+      } else {
+        const userRole = payload.role || mapJobTitleToRole(payload.jobTitle);
+        await User.create({
+          name: payload.name,
+          email: payload.email,
+          password: payload.password,
+          role: userRole,
+          dept: payload.dept,
+        });
       }
-      const userRole = payload.role || mapJobTitleToRole(payload.jobTitle);
-      await User.create({
-        name: payload.name,
-        email: payload.email,
-        password: payload.password,
-        role: userRole,
-      });
     }
 
     if (!payload.email || payload.email === null) {
@@ -95,11 +97,11 @@ const createStaff = async (req, res) => {
 
 const updateStaff = async (req, res) => {
   try {
-    const updated = await StaffProfile.findByIdAndUpdate(
-      req.params.id,
+    const updated = await StaffProfile.findOneAndUpdate(
+      { id: req.params.id },
       req.body,
       {
-        new: true,
+        returnDocument: "after",
         runValidators: true,
       },
     );

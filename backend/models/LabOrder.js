@@ -13,6 +13,7 @@ const LabOrderSchema = new mongoose.Schema(
     panels: [{ type: String, trim: true }],
     specimen: { type: String, trim: true },
     results: { type: mongoose.Schema.Types.Mixed, default: {} },
+    diagnosisReport: { type: String, default: "" },
     status: {
       type: String,
       enum: ["Pending", "In Progress", "Completed"],

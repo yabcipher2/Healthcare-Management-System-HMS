@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   FlaskConical,
   Activity,
@@ -18,10 +18,18 @@ import {
   BarChart3,
   Filter,
   Sliders,
+  X,
+  FileText,
+  ClipboardList,
 } from "lucide-react";
+import {
+  logAudit,
+  fetchAuditLogs,
+  fetchAuditAlertsCount,
+} from "../utils/audit";
 
 export default function LaboratoryPage({ onLogout }) {
-  const [activeTab, setActiveTab] = useState("dashboard"); // dashboard, activeOrders, panelInventory
+  const [activeTab, setActiveTab] = useState("dashboard"); // dashboard, activeOrders, panelInventory, labAudit
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedOrder, setSelectedOrder] = useState(null);
   const hospitalLogo = "/mesra icon.png";
@@ -34,7 +42,43 @@ export default function LaboratoryPage({ onLogout }) {
   // 2. Live Electronic Work Order Queue (Passed from Physicians)
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [auditAlertsCount, setAuditAlertsCount] = useState(0);
+  const [auditLogs, setAuditLogs] = useState([]);
+  const [auditLogsLoading, setAuditLogsLoading] = useState(false);
+  const [auditLogsError, setAuditLogsError] = useState("");
   const [error, setError] = useState(null);
+
+  const loadAuditAlertsCount = useCallback(async () => {
+    try {
+      const data = await fetchAuditAlertsCount();
+      setAuditAlertsCount(data);
+    } catch {
+      // Silently fail audit count fetch - non-critical
+    }
+  }, []);
+
+  const loadAuditLogs = useCallback(async () => {
+    setAuditLogsLoading(true);
+    setAuditLogsError("");
+    try {
+      const result = await fetchAuditLogs({ page: 1, limit: 20 });
+      setAuditLogs(result.data || []);
+    } catch (err) {
+      setAuditLogsError(err.message || "Failed to load audit logs");
+    } finally {
+      setAuditLogsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadAuditAlertsCount();
+    loadAuditLogs();
+  }, [loadAuditAlertsCount, loadAuditLogs]);
+
+  useEffect(() => {
+    const interval = setInterval(() => loadAuditAlertsCount(), 30000);
+    return () => clearInterval(interval);
+  }, [loadAuditAlertsCount]);
 
   // Fetch lab panels and orders on component mount
   useEffect(() => {
@@ -72,7 +116,7 @@ export default function LaboratoryPage({ onLogout }) {
     setSelectedOrder((prev) => ({
       ...prev,
       resultsLogged: {
-        ...prev.resultsLogged,
+        ...(prev.resultsLogged || {}),
         [panelKey]: value,
       },
     }));
@@ -91,7 +135,7 @@ export default function LaboratoryPage({ onLogout }) {
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify(selectedOrder.resultsLogged),
+          body: JSON.stringify(selectedOrder.resultsLogged || {}),
         },
       );
 
@@ -114,6 +158,9 @@ export default function LaboratoryPage({ onLogout }) {
       console.error("Error submitting lab results:", err);
     }
   };
+
+  // Safeguard values inside inputs to prevent uncontrolled crashes
+  const loggedResults = selectedOrder?.resultsLogged || {};
 
   return (
     <div className="flex min-h-screen bg-slate-50 text-slate-800 font-sans antialiased">
@@ -164,6 +211,16 @@ export default function LaboratoryPage({ onLogout }) {
             >
               <Beaker size={16} /> Test Directory
             </button>
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab("labAudit");
+                loadAuditLogs();
+              }}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition ${activeTab === "labAudit" ? "bg-rose-50 text-rose-600" : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"}`}
+            >
+              <ShieldAlert size={16} /> Audit Activity ({auditAlertsCount})
+            </button>
           </nav>
         </div>
 
@@ -174,13 +231,10 @@ export default function LaboratoryPage({ onLogout }) {
             <p>Technologist: K. Yohannes</p>
           </div>
           <button
+            type="button"
             onClick={() => {
-              // 1. Session Cleansing Sequence
-              localStorage.clear(); // Flush application state & tokens from local cache
-              sessionStorage.clear(); // Purge temporary runtime session values
-
-              // 2. Client Routing Redirection
-              // Note: Utilizes window location interface to force absolute state refresh on login boundary
+              localStorage.clear();
+              sessionStorage.clear();
               window.location.href = "/login";
             }}
             className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-900 hover:bg-rose-950/40 border border-slate-800 hover:border-rose-900 text-slate-400 hover:text-rose-400 text-xs font-bold uppercase tracking-wider rounded-xl transition-all"
@@ -201,6 +255,7 @@ export default function LaboratoryPage({ onLogout }) {
                 : "Incoming Specimen Accession Queue")}
             {activeTab === "panelInventory" &&
               "Institutional Pathology Test Registry"}
+            {activeTab === "labAudit" && "System Configuration Auditing"}
           </h1>
           <div className="flex items-center gap-2 font-mono text-xs text-slate-500 bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200/40">
             <Clock size={12} className="text-blue-600" /> Active System Time:{" "}
@@ -208,8 +263,9 @@ export default function LaboratoryPage({ onLogout }) {
           </div>
         </header>
 
+        {/* Content View Container */}
         <main className="flex-1 p-8 overflow-y-auto">
-          {/* LABORATORY INTELLIGENT DASHBOARD */}
+          {/* 1. LABORATORY INTELLIGENT DASHBOARD */}
           {activeTab === "dashboard" && (
             <div className="space-y-8 animate-fadeIn">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -277,7 +333,7 @@ export default function LaboratoryPage({ onLogout }) {
             </div>
           )}
 
-          {/* ACTIVE INVESTIGATION QUEUE */}
+          {/* 2. ACTIVE INVESTIGATION QUEUE */}
           {activeTab === "activeOrders" && !selectedOrder && (
             <div className="space-y-6 animate-fadeIn">
               <div className="bg-white border border-slate-200 rounded-2xl p-4 flex flex-col sm:flex-row justify-between items-center gap-4 shadow-sm">
@@ -339,6 +395,7 @@ export default function LaboratoryPage({ onLogout }) {
                                 <span
                                   key={i}
                                   className="bg-slate-100 text-slate-700 text-[9px] font-bold px-2 py-0.5 rounded-md"
+                                  Amin
                                 >
                                   {p}
                                 </span>
@@ -371,7 +428,7 @@ export default function LaboratoryPage({ onLogout }) {
             </div>
           )}
 
-          {/* BIOCHEMICAL ASSAY RESULTS ENTRY LAB */}
+          {/* 3. BIOCHEMICAL ASSAY RESULTS ENTRY */}
           {activeTab === "activeOrders" && selectedOrder && (
             <div className="max-w-3xl mx-auto bg-white border border-slate-200 rounded-3xl shadow-xl overflow-hidden text-slate-800 animate-fadeIn">
               <div className="p-6 bg-slate-900 text-white flex justify-between items-center">
@@ -399,7 +456,7 @@ export default function LaboratoryPage({ onLogout }) {
                   Quantitative Metrics Acquisition
                 </h3>
 
-                {/* Render Dynamic Form Fields Based on Requested Profiles */}
+                {/* Render Dynamic Form Fields */}
                 {selectedOrder.panels.includes(
                   "Complete Blood Count (CBC)",
                 ) && (
@@ -415,7 +472,7 @@ export default function LaboratoryPage({ onLogout }) {
                         <input
                           type="text"
                           required
-                          value={selectedOrder.resultsLogged.wbc}
+                          value={loggedResults.wbc || ""}
                           onChange={(e) =>
                             handleResultChange("wbc", e.target.value)
                           }
@@ -430,7 +487,7 @@ export default function LaboratoryPage({ onLogout }) {
                         <input
                           type="text"
                           required
-                          value={selectedOrder.resultsLogged.rbc}
+                          value={loggedResults.rbc || ""}
                           onChange={(e) =>
                             handleResultChange("rbc", e.target.value)
                           }
@@ -454,7 +511,7 @@ export default function LaboratoryPage({ onLogout }) {
                       <input
                         type="text"
                         required
-                        value={selectedOrder.resultsLogged.creatinine}
+                        value={loggedResults.creatinine || ""}
                         onChange={(e) =>
                           handleResultChange("creatinine", e.target.value)
                         }
@@ -477,7 +534,7 @@ export default function LaboratoryPage({ onLogout }) {
                       <input
                         type="text"
                         required
-                        value={selectedOrder.resultsLogged.rbs}
+                        value={loggedResults.rbs || ""}
                         onChange={(e) =>
                           handleResultChange("rbs", e.target.value)
                         }
@@ -507,7 +564,7 @@ export default function LaboratoryPage({ onLogout }) {
             </div>
           )}
 
-          {/* PATHOLOGY DIAGNOSTIC DIRECTORY */}
+          {/* 4. PATHOLOGY DIAGNOSTIC DIRECTORY */}
           {activeTab === "panelInventory" && (
             <div className="space-y-6 animate-fadeIn">
               <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
@@ -548,6 +605,90 @@ export default function LaboratoryPage({ onLogout }) {
                     ))}
                   </tbody>
                 </table>
+              </div>
+            </div>
+          )}
+
+          {/* 5. DEPARTMENT AUDIT LOGS */}
+          {activeTab === "labAudit" && (
+            <div className="space-y-6 animate-fadeIn">
+              <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/30">
+                  <div>
+                    <h1 className="text-2xl font-black text-slate-900">
+                      Department Audit Logs
+                    </h1>
+                    <p className="text-slate-400 font-medium mt-1">
+                      Your recent activity and department changes
+                    </p>
+                  </div>
+                  <span className="text-xs font-mono font-bold bg-rose-50 text-rose-600 border border-rose-100 px-3 py-1.5 rounded-lg uppercase">
+                    My Department
+                  </span>
+                </div>
+                {auditLogsError && (
+                  <div className="mx-6 mt-6 p-4 bg-rose-50 border border-rose-200 rounded-xl text-xs font-bold text-rose-700">
+                    {auditLogsError}
+                  </div>
+                )}
+                {auditLogsLoading ? (
+                  <div className="p-10 text-center text-xs font-black text-slate-400 uppercase tracking-wider">
+                    Loading audit logs...
+                  </div>
+                ) : auditLogs.length === 0 ? (
+                  <div className="p-10 text-center text-xs font-black text-slate-400 uppercase tracking-wider">
+                    No audit logs found for your department
+                  </div>
+                ) : (
+                  <div className="divide-y divide-slate-100">
+                    {auditLogs.map((log) => (
+                      <div
+                        key={log._id || log.id}
+                        className="p-5 flex items-start gap-4 hover:bg-slate-50/50 transition"
+                      >
+                        <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center shrink-0 text-slate-500">
+                          {log.action === "CREATE" && <Plus size={18} />}
+                          {log.action === "UPDATE" && <FileText size={18} />}
+                          {log.action === "DELETE" && <X size={18} />}
+                          {[
+                            "ACTIVATE",
+                            "DEACTIVATE",
+                            "RESTORE",
+                            "ARCHIVE",
+                          ].includes(log.action) && <Activity size={18} />}
+                          {log.action === "LOGIN" && <LogOut size={18} />}
+                          {![
+                            "CREATE",
+                            "UPDATE",
+                            "DELETE",
+                            "ACTIVATE",
+                            "DEACTIVATE",
+                            "RESTORE",
+                            "ARCHIVE",
+                            "LOGIN",
+                          ].includes(log.action) && <ClipboardList size={18} />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-xs font-black text-slate-900 uppercase">
+                              {log.module}
+                            </span>
+                            <span className="text-[10px] font-mono font-bold bg-blue-50 text-blue-600 px-2 py-0.5 rounded uppercase">
+                              {log.action}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                            {log.details}
+                          </p>
+                          <p className="text-[10px] text-slate-400 mt-1.5 font-mono">
+                            {log.userName} • {log.userRole} • {log.department} •{" "}
+                            {new Date(log.createdAt).toLocaleString()}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           )}

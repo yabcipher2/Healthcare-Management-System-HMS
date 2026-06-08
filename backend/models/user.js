@@ -21,17 +21,25 @@ const UserSchema = new mongoose.Schema(
         "Pharmacist",
         "Laboratory",
         "Triage",
+        "Nurse",
+        "Casier",
+        "Ward Manager",
       ],
       required: true,
     },
     staffId: { type: String, unique: true, sparse: true },
+    dept: { type: String, trim: true },
   },
   { timestamps: true },
 );
 
 // Pre-save hook to hash password before committing to the collection
+// Updated for Mongoose 7+ async/await pattern
 UserSchema.pre("save", async function () {
-  if (!this.isModified("password")) return;
+  if (!this.isModified("password")) {
+    return;
+  }
+
   const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password, salt);
 });
