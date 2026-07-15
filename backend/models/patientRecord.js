@@ -43,6 +43,7 @@ const PatientRecordSchema = new mongoose.Schema(
       default: "Cash",
     },
     companyName: { type: String, trim: true },
+    policyNumber: { type: String, trim: true },
     referredFrom: { type: String, trim: true },
     registrationTime: { type: String, trim: true },
 
@@ -72,6 +73,8 @@ const PatientRecordSchema = new mongoose.Schema(
       triageCategory: String,
       secondaryUrgencyNotes: String,
     },
+
+    triageDepartment: { type: String, trim: true },
 
     // Clinical updates populated by Doctors
     consultation: {

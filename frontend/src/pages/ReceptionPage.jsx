@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   UserPlus,
   Search,
@@ -19,16 +19,26 @@ import {
   BarChart3,
   Clock,
   LogOut,
+  Plus,
+  X,
+  ClipboardList,
 } from "lucide-react";
+import {
+  logAudit,
+  fetchAuditLogs,
+  fetchAuditAlertsCount,
+} from "../utils/audit";
 
 export default function PatientManagementSystem() {
   // --- STATE MANAGEMENT ---
-  const [activeTab, setActiveTab] = useState("dashboard"); // dashboard, patientsList, registerPatient
+  const [activeTab, setActiveTab] = useState("dashboard"); // dashboard, patientsList, registerPatient, receptionAudit
   const [selectedPatient, setSelectedPatient] = useState(null);
+  const [auditAlertsCount, setAuditAlertsCount] = useState(0);
+  const [auditLogs, setAuditLogs] = useState([]);
+  const [auditLogsLoading, setAuditLogsLoading] = useState(false);
+  const [auditLogsError, setAuditLogsError] = useState("");
   const [isEditing, setIsEditing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-
-  // Patient Records List
   const [patients, setPatients] = useState([]);
 
   const initialFormState = {
@@ -81,8 +91,39 @@ export default function PatientManagementSystem() {
     window.location.href = "/login";
   };
 
-  // API Configuration
   const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+
+  const loadAuditAlertsCount = useCallback(async () => {
+    try {
+      const data = await fetchAuditAlertsCount();
+      setAuditAlertsCount(data);
+    } catch {
+      // Silently fail audit count fetch - non-critical
+    }
+  }, []);
+
+  const loadAuditLogs = useCallback(async () => {
+    setAuditLogsLoading(true);
+    setAuditLogsError("");
+    try {
+      const result = await fetchAuditLogs({ page: 1, limit: 20 });
+      setAuditLogs(result.data || []);
+    } catch (err) {
+      setAuditLogsError(err.message || "Failed to load audit logs");
+    } finally {
+      setAuditLogsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadAuditAlertsCount();
+    loadAuditLogs();
+  }, [loadAuditAlertsCount, loadAuditLogs]);
+
+  useEffect(() => {
+    const interval = setInterval(() => loadAuditAlertsCount(), 30000);
+    return () => clearInterval(interval);
+  }, [loadAuditAlertsCount]);
 
   // Fetch patients from backend on mount and poll for updates
   useEffect(() => {
@@ -92,7 +133,6 @@ export default function PatientManagementSystem() {
     }
     const fetchPatients = async () => {
       try {
-        setLoading(true);
         const response = await fetch(`${API_URL}/api/patients`, {
           headers: getAuthHeaders(),
         });
@@ -112,8 +152,6 @@ export default function PatientManagementSystem() {
       } catch (err) {
         console.error("Error fetching patients:", err);
         setError("Failed to load patients");
-      } finally {
-        setLoading(false);
       }
     };
     fetchPatients();
@@ -121,7 +159,7 @@ export default function PatientManagementSystem() {
     return () => clearInterval(interval);
   }, [API_URL, token]);
 
-  // Automatically update and handle fallback live internet system date/time
+  // Handle standard registration timestamping
   useEffect(() => {
     if (activeTab === "registerPatient" && !isEditing) {
       const now = new Date();
@@ -131,7 +169,6 @@ export default function PatientManagementSystem() {
       const hours = String(now.getHours()).padStart(2, "0");
       const minutes = String(now.getMinutes()).padStart(2, "0");
 
-      // Match standard datetime-local formatting (YYYY-MM-DDTHH:mm)
       const currentDateTimeLocal = `${year}-${month}-${day}T${hours}:${minutes}`;
       setFormData((prev) => ({
         ...prev,
@@ -140,7 +177,6 @@ export default function PatientManagementSystem() {
     }
   }, [activeTab, isEditing]);
 
-  // --- INPUT & ACTION HANDLERS ---
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
@@ -157,7 +193,6 @@ export default function PatientManagementSystem() {
   };
 
   const triggerEditMode = (patient) => {
-    // If the record date exists as text, convert it to datetime-local pattern, else bind live timestamp
     let editTime = patient.registrationTime;
     if (editTime && !editTime.includes("T")) {
       const parsed = new Date(editTime);
@@ -222,12 +257,11 @@ export default function PatientManagementSystem() {
         }
         const data = await response.json();
         setPatients((prev) =>
-          prev.map((p) => (p._id === data.data._id ? data.data : p))
+          prev.map((p) => (p._id === data.data._id ? data.data : p)),
         );
         setSelectedPatient(data.data);
         setIsEditing(false);
       } else {
-        // Register new patient
         const response = await fetch(`${API_URL}/api/patients`, {
           method: "POST",
           headers: getAuthHeaders(),
@@ -253,7 +287,6 @@ export default function PatientManagementSystem() {
     }
   };
 
-  // --- FILTER & PATIENT SEARCH ENGINE ---
   const filteredPatients = patients.filter((patient) => {
     const query = searchQuery.trim().toLowerCase();
     if (!query) return true;
@@ -267,8 +300,11 @@ export default function PatientManagementSystem() {
 
     const fullName =
       `${patient.firstName} ${patient.middleName} ${patient.lastName}`.toLowerCase();
-    const cleanPhone = (patient.phoneNumber || patient.contactNumber || "")
-      .replace(/[\s+-]/g, "");
+    const cleanPhone = (
+      patient.phoneNumber ||
+      patient.contactNumber ||
+      ""
+    ).replace(/[\s+-]/g, "");
     const cleanEmergencyPhone = patient.emergencyContactPhone
       ? patient.emergencyContactPhone.replace(/[\s+-]/g, "")
       : "";
@@ -285,12 +321,9 @@ export default function PatientManagementSystem() {
 
   return (
     <div className="flex min-h-screen bg-slate-50 text-slate-900 font-sans antialiased">
-      {/* ==========================================
-          LEFT ADMINISTRATIVE SIDEBAR NAVIGATION
-          ========================================== */}
+      {/* LEFT ADMINISTRATIVE SIDEBAR */}
       <aside className="w-72 bg-white border-r border-slate-200 flex flex-col justify-between shrink-0 z-30">
         <div>
-          {/* Branded Logo Assembly Area */}
           <div className="p-6 border-b border-slate-200 flex items-center gap-3.5">
             <img
               src={hospitalLogo}
@@ -312,7 +345,6 @@ export default function PatientManagementSystem() {
             </div>
           </div>
 
-          {/* Navigation Items Deck */}
           <nav className="p-4 space-y-1.5 pt-6">
             <button
               onClick={() => {
@@ -321,8 +353,7 @@ export default function PatientManagementSystem() {
               }}
               className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all ${activeTab === "dashboard" ? "bg-blue-600 text-white shadow-lg shadow-blue-600/20" : "text-slate-400 hover:bg-slate-900 hover:text-white"}`}
             >
-              <LayoutDashboard size={16} />
-              Dashboard Analytics
+              <LayoutDashboard size={16} /> Dashboard Analytics
             </button>
 
             <button
@@ -332,52 +363,48 @@ export default function PatientManagementSystem() {
               }}
               className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all ${activeTab === "patientsList" ? "bg-blue-600 text-white shadow-lg shadow-blue-600/20" : "text-slate-400 hover:bg-slate-900 hover:text-white"}`}
             >
-              <Users size={16} />
-              Patient Registry Ledger
+              <Users size={16} /> Patient Registry Ledger
             </button>
 
             <button
               onClick={resetToEmptyRegistration}
               className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all ${activeTab === "registerPatient" ? "bg-blue-600 text-white shadow-lg shadow-blue-600/20" : "text-slate-400 hover:bg-slate-900 hover:text-white"}`}
             >
-              <UserPlus size={16} />
-              Intake Registration
+              <UserPlus size={16} /> Intake Registration
+            </button>
+
+            <button
+              onClick={() => {
+                setActiveTab("receptionAudit");
+                loadAuditLogs();
+              }}
+              className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all ${activeTab === "receptionAudit" ? "bg-rose-50 text-rose-600 shadow-sm" : "text-slate-400 hover:bg-slate-900 hover:text-white"}`}
+            >
+              <ShieldAlert size={16} /> Audit Activity ({auditAlertsCount})
             </button>
           </nav>
         </div>
 
-        {/* System Node Connection Indicator Footer */}
-        <div className="p-4 border-t border-slate-800/80 space-y-3">
-          <div className="bg-slate-900/50 rounded-xl p-3 border border-slate-800 text-[10px] font-mono text-slate-400 space-y-1">
-            <p className="text-blue-400 font-bold">Node Status: Connected</p>
+        <div className="p-4 border-t border-slate-200 space-y-3">
+          <div className="bg-slate-900 rounded-xl p-3 border border-slate-800 text-[10px] font-mono text-slate-400 space-y-1">
+            <p className="text-emerald-400 font-bold">Node Status: Live</p>
             <p>IP: 10.100.10.4</p>
             <p>Role: Admissions Clerk</p>
           </div>
           <button
-            onClick={() => {
-              // 1. Session Cleansing Sequence
-              localStorage.clear(); // Flush application state & tokens from local cache
-              sessionStorage.clear(); // Purge temporary runtime session values
-
-              // 2. Client Routing Redirection
-              // Note: Utilizes window location interface to force absolute state refresh on login boundary
-              window.location.href = "/login";
-            }}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-900 hover:bg-rose-950/40 border border-slate-800 hover:border-rose-900 text-slate-400 hover:text-rose-400 text-xs font-bold uppercase tracking-wider rounded-xl transition-all"
+            onClick={handleAuthError}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-900 hover:bg-rose-950/45 border border-slate-800 hover:border-rose-900 text-slate-400 hover:text-rose-400 text-xs font-bold uppercase tracking-wider rounded-xl transition-all"
           >
             <LogOut size={14} /> Exit Platform
           </button>
         </div>
       </aside>
 
-      {/* ==========================================
-          MAIN CONTENT STAGE/VIEWPORT CONTAINER
-          ========================================== */}
+      {/* MAIN CONTENT CONTAINER */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Universal Sub-Header Row */}
         <header className="bg-white/90 backdrop-blur-md border-b border-slate-200 sticky top-0 px-8 py-4 z-20 flex justify-between items-center">
           <div>
-            <h1 className="text-base font-bold tracking-wider text-white uppercase font-mono">
+            <h1 className="text-sm font-black tracking-wider text-slate-900 uppercase font-mono">
               {activeTab === "dashboard" && "System Analytics Dashboard"}
               {activeTab === "patientsList" &&
                 (selectedPatient
@@ -385,23 +412,29 @@ export default function PatientManagementSystem() {
                   : "Active Registry Files")}
               {activeTab === "registerPatient" &&
                 (isEditing
-                  ? "Modify Extant Profile Block"
+                  ? "Modify Patient Profile"
                   : "Universal Intake Documentation")}
+              {activeTab === "receptionAudit" &&
+                "Internal Security Ledger Logs"}
             </h1>
           </div>
-          <div className="text-right font-mono text-[11px] text-slate-400">
+          <div className="text-right font-mono text-[11px] text-slate-500">
             Platform Track:{" "}
-            <span className="text-cyan-400 font-bold">Live Stream Mode</span>
+            <span className="text-blue-600 font-bold">Live Stream Mode</span>
           </div>
         </header>
 
         <main className="flex-1 p-8 overflow-y-auto">
-          {/* ==========================================
-              VIEWPORT 0: MISSING DASHBOARD ANALYTICS VIEW
-              ========================================== */}
+          {error && (
+            <div className="mb-6 p-4 bg-rose-50 border-l-4 border-rose-500 text-rose-700 text-xs rounded-r-xl flex items-center gap-3">
+              <AlertCircle size={16} />{" "}
+              <span className="font-semibold">{error}</span>
+            </div>
+          )}
+
+          {/* VIEWPORT 0: DASHBOARD ANALYTICS */}
           {activeTab === "dashboard" && (
             <div className="space-y-8 animate-fadeIn">
-              {/* Analytics Metric Cards Grid */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                 {[
                   {
@@ -411,17 +444,21 @@ export default function PatientManagementSystem() {
                   },
                   {
                     label: "Active Outpatient (OPD)",
-                    value: patients.filter((p) => (p.admissionType || "OPD") === "OPD").length,
+                    value: patients.filter((p) => p.admissionType === "OPD")
+                      .length,
                     color: "border-l-cyan-500",
                   },
                   {
                     label: "Active Inpatient (IPD)",
-                    value: patients.filter((p) => (p.admissionType || "OPD") === "IPD").length,
+                    value: patients.filter((p) => p.admissionType === "IPD")
+                      .length,
                     color: "border-l-amber-500",
                   },
                   {
                     label: "Emergency Admissions",
-                    value: patients.filter((p) => (p.admissionType || "OPD") === "Emergency").length,
+                    value: patients.filter(
+                      (p) => p.admissionType === "Emergency",
+                    ).length,
                     color: "border-l-rose-500",
                   },
                 ].map((card, idx) => (
@@ -437,30 +474,26 @@ export default function PatientManagementSystem() {
                         {card.value}
                       </span>
                       <span className="text-[11px] text-emerald-600 font-bold flex items-center gap-0.5">
-                        <TrendingUp size={12} />
-                        {card.change}
+                        <TrendingUp size={12} /> Live
                       </span>
                     </div>
                   </div>
                 ))}
               </div>
 
-              {/* Graphical Distribution Framework Blocks */}
               <div className="grid lg:grid-cols-12 gap-6">
-                {/* Visual Chart Placeholder Block */}
                 <div className="lg:col-span-8 bg-white border border-slate-200 rounded-3xl p-6 shadow-sm">
                   <div className="flex justify-between items-center mb-6">
-                    <h3 className="font-bold text-sm text-white flex items-center gap-2 uppercase tracking-wider">
+                    <h3 className="font-bold text-xs text-slate-900 flex items-center gap-2 uppercase tracking-wider">
                       <BarChart3 size={15} className="text-blue-500" /> Hourly
                       Registration Flux
                     </h3>
-                    <span className="text-[10px] bg-slate-800 text-slate-400 px-2.5 py-1 rounded-md font-mono">
-                      Sync Interval: Realtime
+                    <span className="text-[10px] bg-slate-100 text-slate-600 px-2.5 py-1 rounded-md font-mono">
+                      Sync: Realtime
                     </span>
                   </div>
 
-                  {/* Mock Graphical Columns */}
-                  <div className="h-56 flex items-end gap-3.5 pt-6 border-b border-slate-800 px-2">
+                  <div className="h-56 flex items-end gap-3.5 pt-6 border-b border-slate-200 px-2">
                     {[35, 65, 45, 90, 75, 55, 100].map((height, idx) => (
                       <div
                         key={idx}
@@ -492,60 +525,59 @@ export default function PatientManagementSystem() {
                       </div>
                     ))}
                   </div>
-                  <div className="flex justify-center gap-6 mt-5 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                  <div className="flex justify-center gap-6 mt-5 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
                     <span className="flex items-center gap-1.5">
-                      <span className="w-2.5 h-2.5 bg-blue-600 rounded-sm"></span>
+                      <span className="w-2.5 h-2.5 bg-blue-600 rounded-sm"></span>{" "}
                       Cash Walk-ins
                     </span>
                     <span className="flex items-center gap-1.5">
-                      <span className="w-2.5 h-2.5 bg-cyan-400 rounded-sm"></span>
+                      <span className="w-2.5 h-2.5 bg-cyan-400 rounded-sm"></span>{" "}
                       Corporate Credit
                     </span>
                   </div>
                 </div>
 
-                {/* Queue Tiers Block */}
                 <div className="lg:col-span-4 bg-white border border-slate-200 rounded-3xl p-6 shadow-sm flex flex-col justify-between">
                   <div>
-                    <h3 className="font-bold text-sm text-white uppercase tracking-wider mb-2">
+                    <h3 className="font-bold text-xs text-slate-900 uppercase tracking-wider mb-2">
                       Regional Station Triage Status
                     </h3>
-                    <p className="text-[11px] text-slate-400 mb-6">
-                      Current allocation distribution metrics inside localized
-                      processing slots.
+                    <p className="text-[11px] text-slate-500 mb-6">
+                      Current allocation distribution metrics inside active
+                      triage units.
                     </p>
                   </div>
                   <div className="space-y-4">
                     {[
                       {
                         name: "Outpatient Department",
-                        count: "0 Profiled",
-                        pct: "0%",
+                        count: `${patients.filter((p) => p.admissionType === "OPD").length} Profiled`,
+                        pct: `${patients.length ? (patients.filter((p) => p.admissionType === "OPD").length / patients.length) * 100 : 0}%`,
                         color: "bg-blue-500",
                       },
                       {
                         name: "Adult Emergency Clinic",
-                        count: "0 Profiled",
-                        pct: "0%",
+                        count: `${patients.filter((p) => p.admissionType === "Emergency").length} Profiled`,
+                        pct: `${patients.length ? (patients.filter((p) => p.admissionType === "Emergency").length / patients.length) * 100 : 0}%`,
                         color: "bg-rose-500",
                       },
                       {
-                        name: "Pediatric Admission",
-                        count: "0 Profiled",
-                        pct: "0%",
+                        name: "Inpatient Ward Admissions",
+                        count: `${patients.filter((p) => p.admissionType === "IPD").length} Profiled`,
+                        pct: `${patients.length ? (patients.filter((p) => p.admissionType === "IPD").length / patients.length) * 100 : 0}%`,
                         color: "bg-amber-500",
                       },
                     ].map((triage, index) => (
                       <div key={index} className="space-y-1.5">
                         <div className="flex justify-between text-xs font-semibold">
-                          <span className="text-slate-300 font-medium">
+                          <span className="text-slate-700 font-medium">
                             {triage.name}
                           </span>
-                          <span className="text-slate-400 font-mono text-[11px]">
+                          <span className="text-slate-500 font-mono text-[11px]">
                             {triage.count}
                           </span>
                         </div>
-                        <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
+                        <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
                           <div
                             style={{ width: triage.pct }}
                             className={`h-full ${triage.color}`}
@@ -559,37 +591,36 @@ export default function PatientManagementSystem() {
             </div>
           )}
 
-          {/* VIEWPORT 1: UNIVERSAL PATIENT REGISTRY RECORD LEDGER */}
+          {/* VIEWPORT 1: PATIENT REGISTRY LIST */}
           {activeTab === "patientsList" && !selectedPatient && (
             <div className="space-y-6 animate-fadeIn">
               <div className="bg-white rounded-3xl p-6 text-slate-900 border-b-4 border-blue-600 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
-                  <h2 className="text-base font-black uppercase tracking-widest text-white">
+                  <h2 className="text-base font-black uppercase tracking-widest text-slate-900">
                     Active Admission Case Files
                   </h2>
-                  <p className="text-xs text-slate-400 mt-1">
+                  <p className="text-xs text-slate-500 mt-1">
                     Search, evaluate, filter and manage patient electronic
                     medical cards instantaneously.
                   </p>
                 </div>
-
                 <div className="w-full md:w-96 relative">
                   <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 h-4 w-4 text-slate-400" />
                   <input
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search by Name, Card ID, Phone (09...)..."
-                    className="w-full pl-11 pr-4 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+                    placeholder="Search by Name, Card ID, Phone..."
+                    className="w-full pl-11 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
                   />
                 </div>
               </div>
 
-              <div className="bg-white rounded-3xl border border-slate-200 shadow-xl overflow-hidden">
+              <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
                 <div className="overflow-x-auto">
                   <table className="w-full text-left border-collapse">
                     <thead>
-                      <tr className="bg-slate-900 text-slate-300 text-[11px] font-black uppercase tracking-wider border-b border-slate-800">
+                      <tr className="bg-slate-50 text-slate-600 text-[11px] font-black uppercase tracking-wider border-b border-slate-200">
                         <th className="py-4 px-6">Patient Identifier Card</th>
                         <th className="py-4 px-6">Patient Full Medical Name</th>
                         <th className="py-4 px-6">Age / Sex Metrics</th>
@@ -639,8 +670,7 @@ export default function PatientManagementSystem() {
                                 onClick={() => setSelectedPatient(patient)}
                                 className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white text-[11px] font-black uppercase tracking-wider rounded-xl transition-all shadow-sm hover:bg-blue-700"
                               >
-                                Manage
-                                <ChevronRight size={12} />
+                                Manage <ChevronRight size={12} />
                               </button>
                             </td>
                           </tr>
@@ -651,7 +681,7 @@ export default function PatientManagementSystem() {
                             colSpan="6"
                             className="py-12 text-center text-slate-400 font-medium bg-slate-50/50"
                           >
-                            <AlertCircle className="mx-auto h-8 w-8 text-slate-300 mb-2" />
+                            <AlertCircle className="mx-auto h-8 w-8 text-slate-300 mb-2" />{" "}
                             No matching patient records discovered inside local
                             database index.
                           </td>
@@ -664,35 +694,45 @@ export default function PatientManagementSystem() {
             </div>
           )}
 
-          {/* VIEWPORT 2: PATIENT SPECIFIC DOSSIER DETAILED RECORD CARD WITH TIMESTAMPS */}
+          {/* VIEWPORT 2: REPAIRED & COMPLETE DETAILED PATIENT DOSSIER CARD */}
           {selectedPatient && activeTab === "patientsList" && (
-            <div className="max-w-4xl mx-auto bg-white rounded-3xl border border-slate-200 shadow-2xl overflow-hidden animate-fadeIn">
-              <div className="p-6 bg-white text-slate-900 border-b-4 border-blue-600 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                <div className="flex items-center gap-3.5">
-                  <div className="p-3 bg-slate-800 rounded-2xl border border-slate-700 shadow-inner">
-                    <User className="h-6 w-6 text-blue-400" />
-                  </div>
-                  <div>
-                    <h2 className="text-lg font-black tracking-wide text-white">
-                      {selectedPatient.firstName} {selectedPatient.middleName}{" "}
-                      {selectedPatient.lastName}
+            <div className="max-w-4xl mx-auto bg-white rounded-3xl border border-slate-200 shadow-xl overflow-hidden animate-fadeIn">
+               <div className="p-6 bg-white text-slate-900 border-b border-slate-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                 <div className="flex items-center gap-3.5">
+                   <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 shadow-inner">
+                     <User className="h-6 w-6 text-blue-600" />
+                   </div>
+                   <div>
+                     <h2 className="text-lg font-black tracking-wide text-slate-900">
+                       {selectedPatient.firstName} {selectedPatient.middleName}{" "}
+                       {selectedPatient.lastName}
                     </h2>
-                    <p className="text-xs font-mono text-blue-400 mt-0.5">
-                      Card Token Identity:{" "}
+                    <p className="text-xs font-mono text-blue-600 mt-0.5">
+                      Card Identity Token:{" "}
                       <span className="font-bold">
                         {selectedPatient.cardId}
                       </span>
                     </p>
                   </div>
                 </div>
-                <span className="bg-blue-600 text-white font-mono font-bold text-xs px-3 py-1.5 rounded-xl uppercase tracking-wider shadow-md">
-                  {selectedPatient.admissionType} Portal Track
-                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => triggerEditMode(selectedPatient)}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-all"
+                  >
+                    <Edit2 size={13} /> Edit Record
+                  </button>
+                  <button
+                    onClick={() => setSelectedPatient(null)}
+                    className="p-2 bg-slate-100 hover:bg-slate-200 rounded-xl text-slate-500"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
               </div>
 
               <div className="p-8 space-y-8">
-                {/* Visual Registration Log Mark Banner */}
-                <div className="flex items-center gap-2 bg-slate-100/80 px-4 py-3 rounded-xl border border-slate-200/40 text-slate-700">
+                <div className="flex items-center gap-2 bg-slate-50 px-4 py-3 rounded-xl border border-slate-200/60 text-slate-700">
                   <Clock size={14} className="text-blue-600" />
                   <span className="text-xs font-bold uppercase tracking-wider">
                     System Log Registration Timestamp Track:
@@ -702,8 +742,8 @@ export default function PatientManagementSystem() {
                   </span>
                 </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                  <div className="p-3 bg-white rounded-xl border border-slate-200/60 shadow-sm">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
                       Patient Age Span
                     </span>
@@ -711,545 +751,344 @@ export default function PatientManagementSystem() {
                       {selectedPatient.age} {selectedPatient.ageUnit}
                     </p>
                   </div>
-                  <div className="p-3 bg-white rounded-xl border border-slate-200/60 shadow-sm">
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
-                      Biological Sex Track
+                      Assigned Gender
                     </span>
                     <p className="text-sm font-black text-slate-800 mt-1">
                       {selectedPatient.gender}
                     </p>
                   </div>
-                  <div className="p-3 bg-white rounded-xl border border-slate-200/60 shadow-sm">
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
-                      Blood Group Identity
-                    </span>
-                    <p className="text-sm font-black text-rose-600 mt-1">
-                      {selectedPatient.bloodGroup || "Not Stated"}
-                    </p>
-                  </div>
-                  <div className="p-3 bg-white rounded-xl border border-slate-200/60 shadow-sm">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
-                      Marital Metric State
+                      Blood Component
                     </span>
                     <p className="text-sm font-black text-slate-800 mt-1">
-                      {selectedPatient.maritalStatus || "Not Categorized"}
+                      {selectedPatient.bloodGroup || "Not Typed"}
+                    </p>
+                  </div>
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                      Track Channel
+                    </span>
+                    <p className="text-sm font-black text-blue-600 mt-1">
+                      {selectedPatient.admissionType}
                     </p>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-3 border border-slate-100 p-4 rounded-xl bg-white shadow-sm">
-                    <h4 className="text-[10px] font-black uppercase text-blue-600 tracking-widest flex items-center gap-1.5">
-                      <MapPin size={12} /> Geographic Coordinates
+                <div className="space-y-4">
+                  <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
+                    <Activity size={14} className="text-blue-500" /> Core
+                    Clinical Intake Complaint
+                  </h3>
+                  <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200/60 text-xs leading-relaxed font-medium text-slate-700">
+                    {selectedPatient.chiefComplaint ||
+                      "No primary record notes added for intake track profile."}
+                  </div>
+                </div>
+
+                <div className="grid md:grid-cols-2 gap-6">
+                  <div className="space-y-3">
+                    <h4 className="text-[11px] font-black uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                      <MapPin size={13} /> Local Address Matrix
                     </h4>
-                    <div className="text-xs space-y-1.5 text-slate-600">
-                      <p>
-                        Sub-city Location Cluster:{" "}
-                        <strong className="text-slate-800">
+                    <ul className="bg-slate-50 border border-slate-100 rounded-2xl p-4 space-y-2 text-xs font-medium text-slate-700">
+                      <li className="flex justify-between">
+                        <span>Sub-City Zone:</span>{" "}
+                        <span className="font-bold text-slate-900">
                           {selectedPatient.subCity}
-                        </strong>
-                      </p>
-                      <p>
-                        Woreda Zone Sector ID:{" "}
-                        <strong className="text-slate-800">
+                        </span>
+                      </li>
+                      <li className="flex justify-between">
+                        <span>Woreda Sector:</span>{" "}
+                        <span className="font-bold text-slate-900">
                           {selectedPatient.woreda}
-                        </strong>
-                      </p>
-                      <p>
-                        Residential House Number:{" "}
-                        <strong className="text-slate-800">
+                        </span>
+                      </li>
+                      <li className="flex justify-between">
+                        <span>House Allocation:</span>{" "}
+                        <span className="font-bold text-slate-900">
                           {selectedPatient.houseNumber || "N/A"}
-                        </strong>
-                      </p>
-                      <p>
-                        Primary Comm Phone Line:{" "}
-                        <strong className="text-slate-800 font-mono">
-                          {selectedPatient.phoneNumber}
-                        </strong>
-                      </p>
-                    </div>
+                        </span>
+                      </li>
+                      <li className="flex justify-between">
+                        <span>Nationality Status:</span>{" "}
+                        <span className="font-bold text-slate-900">
+                          {selectedPatient.nationality}
+                        </span>
+                      </li>
+                    </ul>
                   </div>
 
-                  <div className="space-y-3 border border-slate-100 p-4 rounded-xl bg-white shadow-sm">
-                    <h4 className="text-[10px] font-black uppercase text-blue-600 tracking-widest flex items-center gap-1.5">
-                      <ShieldAlert size={12} /> Primary Emergency Kinship
-                      Metrics
+                  <div className="space-y-3">
+                    <h4 className="text-[11px] font-black uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                      <Heart size={13} /> Emergency Verification Units
                     </h4>
-                    <div className="text-xs space-y-1.5 text-slate-600">
-                      <p>
-                        Emergency Contact Liaison:{" "}
-                        <strong className="text-slate-800">
+                    <ul className="bg-slate-50 border border-slate-100 rounded-2xl p-4 space-y-2 text-xs font-medium text-slate-700">
+                      <li className="flex justify-between">
+                        <span>Contact Liaison:</span>{" "}
+                        <span className="font-bold text-slate-900">
                           {selectedPatient.emergencyContactName}
-                        </strong>
-                      </p>
-                      <p>
-                        Liaison Emergency Telephone:{" "}
-                        <strong className="text-slate-800 font-mono">
+                        </span>
+                      </li>
+                      <li className="flex justify-between">
+                        <span>Primary Phone Line:</span>{" "}
+                        <span className="font-bold text-slate-900 font-mono">
                           {selectedPatient.emergencyContactPhone}
-                        </strong>
-                      </p>
-                      {selectedPatient.guardianFullName && (
-                        <>
-                          <p>
-                            Legal Guardian Parent:{" "}
-                            <strong className="text-slate-800">
-                              {selectedPatient.guardianFullName}
-                            </strong>
-                          </p>
-                          <p>
-                            Guardian Relationship Line:{" "}
-                            <strong className="text-slate-800">
-                              {selectedPatient.guardianRelationship}
-                            </strong>
-                          </p>
-                        </>
+                        </span>
+                      </li>
+                      <li className="flex justify-between">
+                        <span>Financial Modality:</span>{" "}
+                        <span className="font-bold text-emerald-600">
+                          {selectedPatient.paymentType}
+                        </span>
+                      </li>
+                      {selectedPatient.companyName && (
+                        <li className="flex justify-between">
+                          <span>Corporate Attachment:</span>{" "}
+                          <span className="font-bold text-slate-900">
+                            {selectedPatient.companyName}
+                          </span>
+                        </li>
                       )}
-                    </div>
+                    </ul>
                   </div>
-                </div>
-
-                <div className="bg-amber-50/50 border border-amber-200/80 p-5 rounded-2xl space-y-2">
-                  <span className="text-[10px] font-black text-amber-800 uppercase tracking-widest block">
-                    Chief Intake Symptom Narrative Presenting Complaint
-                  </span>
-                  <p className="text-xs text-amber-900 leading-relaxed font-medium">
-                    {selectedPatient.chiefComplaint}
-                  </p>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs font-semibold text-slate-500 border-t border-slate-100 pt-5">
-                  <div>
-                    Settlement Modality:{" "}
-                    <span className="text-slate-800 font-bold">
-                      {selectedPatient.paymentType}
-                    </span>
-                  </div>
-                  <div>
-                    Inflow Route Context:{" "}
-                    <span className="text-slate-800 font-bold">
-                      {selectedPatient.referredFrom}
-                    </span>
-                  </div>
-                  <div>
-                    Entry Timestamp Log:{" "}
-                    <span className="text-slate-800 font-mono font-medium">
-                      {selectedPatient.registrationTime}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="flex flex-col sm:flex-row gap-3 pt-6 border-t border-slate-100">
-                  <button
-                    onClick={() => triggerEditMode(selectedPatient)}
-                    className="flex-1 inline-flex justify-center items-center gap-2 px-5 py-3 rounded-xl bg-blue-600 text-white text-xs font-bold uppercase tracking-wider transition-all shadow-md hover:bg-blue-700"
-                  >
-                    <Edit2 size={13} /> edit patient data
-                  </button>
-                  <button
-                    onClick={() => setSelectedPatient(null)}
-                    className="px-5 py-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-bold uppercase tracking-wider transition-all"
-                  >
-                    Return to Ledger
-                  </button>
                 </div>
               </div>
             </div>
           )}
 
-          {/* VIEWPORT 3: HOSPITAL-GRADE REGISTRATION FORM COMPONENT WITH AUTOMATIC TIMESTAMPS */}
+          {/* VIEWPORT 3: UNIVERSAL INTAKE REGISTRATION FORM */}
           {activeTab === "registerPatient" && (
-            <div className="max-w-4xl mx-auto bg-white rounded-3xl border border-slate-200 shadow-2xl overflow-hidden animate-fadeIn text-slate-800">
-              <div className="p-6 bg-white text-slate-900 border-b-4 border-blue-600 flex items-center gap-3">
-                <div className="p-2 bg-slate-800 rounded-xl">
-                  <UserPlus className="text-blue-400 h-5 w-5" />
-                </div>
+            <form
+              onSubmit={handleFormSubmit}
+              className="max-w-4xl mx-auto bg-white rounded-3xl border border-slate-200 shadow-xl overflow-hidden animate-fadeIn"
+            >
+              <div className="p-6 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
                 <div>
-                  <h2 className="text-sm font-black uppercase tracking-widest">
+                  <h3 className="text-sm font-black uppercase tracking-wider text-slate-900">
                     {isEditing
-                      ? `Modifying Extant Metadata Profile Block: ${formData.cardId}`
-                      : "Universal Health Intake Registry Document"}
-                  </h2>
-                  <p className="text-[11px] text-slate-400 mt-0.5">
-                    Fill out all system variables accurately to build a clean
-                    medical file.
+                      ? "Modify Extant Profile Metadata"
+                      : "Universal Client Documentation Entry"}
+                  </h3>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Ensure strict legal data binding parameters before
+                    dispatching transaction nodes to state database storage
+                    models.
                   </p>
                 </div>
+                <span className="text-[10px] bg-blue-50 text-blue-600 px-2.5 py-1 rounded-md font-mono font-bold tracking-wider uppercase">
+                  Clerical Track
+                </span>
               </div>
 
-              <form onSubmit={handleFormSubmit} className="p-8 space-y-8">
-                {/* PHASE I: ADMINISTRATIVE CLASSIFICATIONS */}
+              <div className="p-8 space-y-8">
+                {/* Section 1: Demographics */}
                 <div className="space-y-4">
-                  <h3 className="text-[11px] font-black uppercase tracking-widest text-blue-600 border-b border-slate-100 pb-2 flex items-center gap-2">
-                    <Calendar size={14} /> Section 1: Administrative Log
-                    Classifications
-                  </h3>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
-                    {/* Timestamp Verification Input Tag Row */}
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider block">
-                        Registration Time (Live Sync Log) *
-                      </label>
-                      <input
-                        type="datetime-local"
-                        name="registrationTime"
-                        value={formData.registrationTime}
-                        onChange={handleInputChange}
-                        className={`w-full px-4 py-2.5 rounded-xl border text-xs font-bold transition-all focus:outline-none bg-white ${formErrors.registrationTime ? "border-rose-400 bg-rose-50/20" : "border-slate-200 focus:ring-2 focus:ring-blue-500"}`}
-                      />
-                      {formErrors.registrationTime && (
-                        <p className="text-rose-500 text-[10px] font-bold mt-1 flex items-center gap-1">
-                          <AlertCircle size={11} />
-                          {formErrors.registrationTime}
-                        </p>
-                      )}
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider block">
-                        Admission Station Portal *
-                      </label>
-                      <select
-                        name="admissionType"
-                        value={formData.admissionType}
-                        onChange={handleInputChange}
-                        className={`w-full px-4 py-2.5 rounded-xl border text-xs font-bold bg-white transition-all focus:outline-none ${formErrors.admissionType ? "border-rose-400 bg-rose-50/20" : "border-slate-200 focus:ring-2 focus:ring-blue-500"}`}
-                      >
-                        <option value="OPD">Outpatient Department (OPD)</option>
-                        <option value="IPD">Inpatient Department (IPD)</option>
-                        <option value="Emergency">Emergency Admission</option>
-                        <option value="Referral">Referral</option>
-                      </select>
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider block">
-                        Financial Payment Tier Modality
-                      </label>
-                      <select
-                        name="paymentType"
-                        value={formData.paymentType}
-                        onChange={handleInputChange}
-                        className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-xs font-bold bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                      >
-                        <option value="Cash">Cash Outlay Settlement</option>
-                        <option value="Credit/Insurance">
-                          Insurance Company Credit
-                        </option>
-                        <option value="Prepaid">Prepaid Deposit</option>
-                        <option value="Other">Other Modality</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 gap-5">
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider block">
-                        Company Coverage Title (If Insurance)
-                      </label>
-                      <input
-                        type="text"
-                        name="companyName"
-                        value={formData.companyName}
-                        onChange={handleInputChange}
-                        placeholder="Insurance / Employer Name"
-                        className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-xs font-bold focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* PHASE II: CORE MEDICAL DEMOGRAPHICS */}
-                <div className="space-y-4">
-                  <h3 className="text-[11px] font-black uppercase tracking-widest text-blue-600 border-b border-slate-100 pb-2 flex items-center gap-2">
-                    <User size={14} /> Section 2: Patient Core Demographics
-                  </h3>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider block">
-                        First Name *
+                  <h4 className="text-[11px] font-black uppercase tracking-widest text-slate-400 border-b border-slate-100 pb-2">
+                    1. Demographic Profile Matrix
+                  </h4>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                    <div>
+                      <label className="block text-[11px] font-bold uppercase text-slate-500 mb-1.5">
+                        First Legal Name *
                       </label>
                       <input
                         type="text"
                         name="firstName"
                         value={formData.firstName}
                         onChange={handleInputChange}
-                        placeholder="Patient First Name"
-                        className={`w-full px-4 py-2.5 rounded-xl border text-xs font-bold transition-all focus:outline-none ${formErrors.firstName ? "border-rose-400 bg-rose-50/20" : "border-slate-200 focus:ring-2 focus:ring-blue-500"}`}
+                        className={`w-full px-3.5 py-2 bg-slate-50 border ${formErrors.firstName ? "border-rose-400 focus:ring-rose-200" : "border-slate-200 focus:ring-blue-100"} rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-4 font-medium`}
                       />
                       {formErrors.firstName && (
-                        <p className="text-rose-500 text-[10px] font-bold mt-1 flex items-center gap-1">
-                          <AlertCircle size={11} />
+                        <p className="text-[10px] text-rose-600 font-semibold mt-1">
                           {formErrors.firstName}
                         </p>
                       )}
                     </div>
-
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider block">
-                        Middle Name *
+                    <div>
+                      <label className="block text-[11px] font-bold uppercase text-slate-500 mb-1.5">
+                        Middle Patronymic Name *
                       </label>
                       <input
                         type="text"
                         name="middleName"
                         value={formData.middleName}
                         onChange={handleInputChange}
-                        placeholder="Father's Name"
-                        className={`w-full px-4 py-2.5 rounded-xl border text-xs font-bold transition-all focus:outline-none ${formErrors.middleName ? "border-rose-400 bg-rose-50/20" : "border-slate-200 focus:ring-2 focus:ring-blue-500"}`}
+                        className={`w-full px-3.5 py-2 bg-slate-50 border ${formErrors.middleName ? "border-rose-400 focus:ring-rose-200" : "border-slate-200 focus:ring-blue-100"} rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-4 font-medium`}
                       />
                       {formErrors.middleName && (
-                        <p className="text-rose-500 text-[10px] font-bold mt-1 flex items-center gap-1">
-                          <AlertCircle size={11} />
+                        <p className="text-[10px] text-rose-600 font-semibold mt-1">
                           {formErrors.middleName}
                         </p>
                       )}
                     </div>
-
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider block">
-                        Last Name *
+                    <div>
+                      <label className="block text-[11px] font-bold uppercase text-slate-500 mb-1.5">
+                        Last Family Name *
                       </label>
                       <input
                         type="text"
                         name="lastName"
                         value={formData.lastName}
                         onChange={handleInputChange}
-                        placeholder="Grandfather's Name"
-                        className={`w-full px-4 py-2.5 rounded-xl border text-xs font-bold transition-all focus:outline-none ${formErrors.lastName ? "border-rose-400 bg-rose-50/20" : "border-slate-200 focus:ring-2 focus:ring-blue-500"}`}
+                        className={`w-full px-3.5 py-2 bg-slate-50 border ${formErrors.lastName ? "border-rose-400 focus:ring-rose-200" : "border-slate-200 focus:ring-blue-100"} rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-4 font-medium`}
                       />
                       {formErrors.lastName && (
-                        <p className="text-rose-500 text-[10px] font-bold mt-1 flex items-center gap-1">
-                          <AlertCircle size={11} />
+                        <p className="text-[10px] text-rose-600 font-semibold mt-1">
                           {formErrors.lastName}
                         </p>
                       )}
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-5 pt-2">
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider block">
-                        Age Numerical *
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-5">
+                    <div>
+                      <label className="block text-[11px] font-bold uppercase text-slate-500 mb-1.5">
+                        Age Matrix Span *
                       </label>
                       <input
                         type="number"
                         name="age"
                         value={formData.age}
                         onChange={handleInputChange}
-                        placeholder="e.g. 24"
-                        min="1"
-                        className={`w-full px-4 py-2.5 rounded-xl border text-xs font-bold transition-all focus:outline-none ${formErrors.age ? "border-rose-400 bg-rose-50/20" : "border-slate-200 focus:ring-2 focus:ring-blue-500"}`}
+                        className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-4 focus:ring-blue-100 font-medium"
                       />
                       {formErrors.age && (
-                        <p className="text-rose-500 text-[10px] font-bold mt-1 flex items-center gap-1">
-                          <AlertCircle size={11} />
+                        <p className="text-[10px] text-rose-600 font-semibold mt-1">
                           {formErrors.age}
                         </p>
                       )}
                     </div>
-
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider block">
-                        Age Unit Scale
+                    <div>
+                      <label className="block text-[11px] font-bold uppercase text-slate-500 mb-1.5">
+                        Age Dynamic Unit
                       </label>
                       <select
                         name="ageUnit"
                         value={formData.ageUnit}
                         onChange={handleInputChange}
-                        className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-xs font-bold bg-white focus:ring-2 focus:ring-blue-500"
+                        className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-4 focus:ring-blue-100 font-medium"
                       >
-                        <option value="Years">Years Scale</option>
-                        <option value="Months">Months Scale</option>
-                        <option value="Days">Days Scale</option>
+                        <option>Years</option>
+                        <option>Months</option>
+                        <option>Days</option>
                       </select>
                     </div>
-
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider block">
-                        Assigned Biological Sex *
+                    <div>
+                      <label className="block text-[11px] font-bold uppercase text-slate-500 mb-1.5">
+                        Biological Gender *
                       </label>
                       <select
                         name="gender"
                         value={formData.gender}
                         onChange={handleInputChange}
-                        className={`w-full px-4 py-2.5 rounded-xl border text-xs font-bold bg-white transition-all focus:outline-none ${formErrors.gender ? "border-rose-400 bg-rose-50/20" : "border-slate-200 focus:ring-2 focus:ring-blue-500"}`}
+                        className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-4 focus:ring-blue-100 font-medium"
                       >
-                        <option value="">Select Sex</option>
-                        <option value="Male">Male Track</option>
-                        <option value="Female">Female Track</option>
+                        <option value="">Select Gender</option>
+                        <option>Male</option>
+                        <option>Female</option>
                       </select>
                       {formErrors.gender && (
-                        <p className="text-rose-500 text-[10px] font-bold mt-1 flex items-center gap-1">
-                          <AlertCircle size={11} />
+                        <p className="text-[10px] text-rose-600 font-semibold mt-1">
                           {formErrors.gender}
                         </p>
                       )}
                     </div>
-
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider block">
-                        Blood Group Typology
+                    <div>
+                      <label className="block text-[11px] font-bold uppercase text-slate-500 mb-1.5">
+                        Blood Classification Group
                       </label>
                       <select
                         name="bloodGroup"
                         value={formData.bloodGroup}
                         onChange={handleInputChange}
-                        className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-xs font-bold bg-white focus:ring-2 focus:ring-blue-500"
+                        className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-4 focus:ring-blue-100 font-medium"
                       >
-                        <option value="">Unknown Profile</option>
-                        <option value="A+">A+ Type</option>
-                        <option value="A-">A- Type</option>
-                        <option value="B+">B+ Type</option>
-                        <option value="B-">B- Type</option>
-                        <option value="AB+">AB+ Type</option>
-                        <option value="AB-">AB- Type</option>
-                        <option value="O+">O+ Type</option>
-                        <option value="O-">O- Type</option>
-                      </select>
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider block">
-                        Marital Metric State
-                      </label>
-                      <select
-                        name="maritalStatus"
-                        value={formData.maritalStatus}
-                        onChange={handleInputChange}
-                        className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-xs font-bold bg-white focus:ring-2 focus:ring-blue-500"
-                      >
-                        <option value="">Select Option</option>
-                        <option value="Single">Single</option>
-                        <option value="Married">Married</option>
-                        <option value="Divorced">Divorced</option>
-                        <option value="Widowed">Widowed</option>
-                        <option value="N/A">Not Applicable</option>
+                        <option value="">A/B/O Track</option>
+                        <option>A+</option>
+                        <option>A-</option>
+                        <option>B+</option>
+                        <option>B-</option>
+                        <option>AB+</option>
+                        <option>AB-</option>
+                        <option>O+</option>
+                        <option>O-</option>
                       </select>
                     </div>
                   </div>
                 </div>
 
-                {/* PHASE III: GEOGRAPHIC COORDINATES */}
+                {/* Section 2: Contact & Location */}
                 <div className="space-y-4">
-                  <h3 className="text-[11px] font-black uppercase tracking-widest text-blue-600 border-b border-slate-100 pb-2 flex items-center gap-2">
-                    <MapPin size={14} /> Section 3: Geographic Coordinates &
-                    Addresses
-                  </h3>
-                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-5">
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider block">
-                        Sub-city Location Cluster *
-                      </label>
-                      <input
-                        type="text"
-                        name="subCity"
-                        value={formData.subCity}
-                        onChange={handleInputChange}
-                        placeholder="e.g. Bole / Yeka"
-                        className={`w-full px-4 py-2.5 rounded-xl border text-xs font-bold transition-all focus:outline-none ${formErrors.subCity ? "border-rose-400 bg-rose-50/20" : "border-slate-200 focus:ring-2 focus:ring-blue-500"}`}
-                      />
-                      {formErrors.subCity && (
-                        <p className="text-rose-500 text-[10px] font-bold mt-1 flex items-center gap-1">
-                          <AlertCircle size={11} />
-                          {formErrors.subCity}
-                        </p>
-                      )}
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider block">
-                        Woreda Zone Sector *
-                      </label>
-                      <input
-                        type="text"
-                        name="woreda"
-                        value={formData.woreda}
-                        onChange={handleInputChange}
-                        placeholder="e.g. 04 or 12"
-                        className={`w-full px-4 py-2.5 rounded-xl border text-xs font-bold transition-all focus:outline-none ${formErrors.woreda ? "border-rose-400 bg-rose-50/20" : "border-slate-200 focus:ring-2 focus:ring-blue-500"}`}
-                      />
-                      {formErrors.woreda && (
-                        <p className="text-rose-500 text-[10px] font-bold mt-1 flex items-center gap-1">
-                          <AlertCircle size={11} />
-                          {formErrors.woreda}
-                        </p>
-                      )}
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider block">
-                        House Identifier Number
-                      </label>
-                      <input
-                        type="text"
-                        name="houseNumber"
-                        value={formData.houseNumber}
-                        onChange={handleInputChange}
-                        placeholder="e.g. 902 / New"
-                        className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-xs font-bold focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider block">
-                        Patient Corporate Nationality
-                      </label>
-                      <input
-                        type="text"
-                        name="nationality"
-                        value={formData.nationality}
-                        onChange={handleInputChange}
-                        className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-xs font-bold focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 pt-2">
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider block">
-                        Primary Communication Phone *
+                  <h4 className="text-[11px] font-black uppercase tracking-widest text-slate-400 border-b border-slate-100 pb-2">
+                    2. Communication & Structural Coordinates
+                  </h4>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                    <div>
+                      <label className="block text-[11px] font-bold uppercase text-slate-500 mb-1.5">
+                        Primary Phone Contact *
                       </label>
                       <input
                         type="text"
                         name="phoneNumber"
                         value={formData.phoneNumber}
                         onChange={handleInputChange}
-                        placeholder="+251 9XX XXXXXX"
-                        className={`w-full px-4 py-2.5 rounded-xl border text-xs font-bold transition-all focus:outline-none ${formErrors.phoneNumber ? "border-rose-400 bg-rose-50/20" : "border-slate-200 focus:ring-2 focus:ring-blue-500"}`}
+                        placeholder="e.g. 0911..."
+                        className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 font-mono focus:outline-none focus:ring-4 focus:ring-blue-100 font-medium"
                       />
                       {formErrors.phoneNumber && (
-                        <p className="text-rose-500 text-[10px] font-bold mt-1 flex items-center gap-1">
-                          <AlertCircle size={11} />
+                        <p className="text-[10px] text-rose-600 font-semibold mt-1">
                           {formErrors.phoneNumber}
                         </p>
                       )}
                     </div>
-
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider block">
-                        Alternative Call Backup Line
+                    <div>
+                      <label className="block text-[11px] font-bold uppercase text-slate-500 mb-1.5">
+                        Sub-City Region Zone *
                       </label>
                       <input
                         type="text"
-                        name="alternativePhone"
-                        value={formData.alternativePhone}
+                        name="subCity"
+                        value={formData.subCity}
                         onChange={handleInputChange}
-                        placeholder="Secondary Telephone Contact"
-                        className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-xs font-bold focus:ring-2 focus:ring-blue-500"
+                        className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-4 focus:ring-blue-100 font-medium"
                       />
+                      {formErrors.subCity && (
+                        <p className="text-[10px] text-rose-600 font-semibold mt-1">
+                          {formErrors.subCity}
+                        </p>
+                      )}
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold uppercase text-slate-500 mb-1.5">
+                        Woreda Distribution Sector *
+                      </label>
+                      <input
+                        type="text"
+                        name="woreda"
+                        value={formData.woreda}
+                        onChange={handleInputChange}
+                        className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-4 focus:ring-blue-100 font-medium"
+                      />
+                      {formErrors.woreda && (
+                        <p className="text-[10px] text-rose-600 font-semibold mt-1">
+                          {formErrors.woreda}
+                        </p>
+                      )}
                     </div>
                   </div>
                 </div>
 
-                {/* PHASE IV: EMERGENCY CONTACTS & KINSHIP RELATIONS */}
+                {/* Section 3: Administrative & Complaint */}
                 <div className="space-y-4">
-                  <h3 className="text-[11px] font-black uppercase tracking-widest text-blue-600 border-b border-slate-100 pb-2 flex items-center gap-2">
-                    <ShieldAlert size={14} /> Section 4: Emergency Contacts &
-                    Kinship Liaison Parameters
-                  </h3>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider block">
+                  <h4 className="text-[11px] font-black uppercase tracking-widest text-slate-400 border-b border-slate-100 pb-2">
+                    3. Institutional Tracking Logic & Complaints
+                  </h4>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                    <div>
+                      <label className="block text-[11px] font-bold uppercase text-slate-500 mb-1.5">
                         Emergency Contact Full Name *
                       </label>
                       <input
@@ -1257,171 +1096,271 @@ export default function PatientManagementSystem() {
                         name="emergencyContactName"
                         value={formData.emergencyContactName}
                         onChange={handleInputChange}
-                        placeholder="Liaison Legal Identity Name"
-                        className={`w-full px-4 py-2.5 rounded-xl border text-xs font-bold transition-all focus:outline-none ${formErrors.emergencyContactName ? "border-rose-400 bg-rose-50/20" : "border-slate-200 focus:ring-2 focus:ring-blue-500"}`}
+                        className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-4 focus:ring-blue-100 font-medium"
                       />
                       {formErrors.emergencyContactName && (
-                        <p className="text-rose-500 text-[10px] font-bold mt-1 flex items-center gap-1">
-                          <AlertCircle size={11} />
+                        <p className="text-[10px] text-rose-600 font-semibold mt-1">
                           {formErrors.emergencyContactName}
                         </p>
                       )}
                     </div>
-
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider block">
-                        Emergency Liaison Telephone Number *
+                    <div>
+                      <label className="block text-[11px] font-bold uppercase text-slate-500 mb-1.5">
+                        Emergency Liaison Phone *
                       </label>
                       <input
                         type="text"
                         name="emergencyContactPhone"
                         value={formData.emergencyContactPhone}
                         onChange={handleInputChange}
-                        placeholder="Liaison Active Mobile Line"
-                        className={`w-full px-4 py-2.5 rounded-xl border text-xs font-bold transition-all focus:outline-none ${formErrors.emergencyContactPhone ? "border-rose-400 bg-rose-50/20" : "border-slate-200 focus:ring-2 focus:ring-blue-500"}`}
+                        className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 font-mono focus:outline-none focus:ring-4 focus:ring-blue-100 font-medium"
                       />
                       {formErrors.emergencyContactPhone && (
-                        <p className="text-rose-500 text-[10px] font-bold mt-1 flex items-center gap-1">
-                          <AlertCircle size={11} />
+                        <p className="text-[10px] text-rose-600 font-semibold mt-1">
                           {formErrors.emergencyContactPhone}
                         </p>
                       )}
                     </div>
+                     <div>
+                       <label className="block text-[11px] font-bold uppercase text-slate-500 mb-1.5">
+                         Admission Station Route Channel
+                       </label>
+                       <select
+                         name="admissionType"
+                         value={formData.admissionType}
+                         onChange={handleInputChange}
+                         className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-4 focus:ring-blue-100 font-medium"
+                       >
+                         <option>OPD</option>
+                         <option>IPD</option>
+                         <option>Emergency</option>
+                       </select>
+                     </div>
+                     <div>
+                       <label className="block text-[11px] font-bold uppercase text-slate-500 mb-1.5">
+                         Emergency Liaison Relationship with Guidance
+                       </label>
+                       <input
+                         type="text"
+                         name="guardianRelationship"
+                         value={formData.guardianRelationship}
+                         onChange={handleInputChange}
+                         placeholder="e.g. Legal Guardian / Parent / Next of Kin"
+                         className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-4 focus:ring-blue-100 font-medium"
+                       />
+                       {formErrors.guardianRelationship && (
+                         <p className="text-[10px] text-rose-600 font-semibold mt-1">
+                           {formErrors.guardianRelationship}
+                         </p>
+                       )}
+                     </div>
+                   </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                    <div>
+                      <label className="block text-[11px] font-bold uppercase text-slate-500 mb-1.5">
+                        Financial Mode Status
+                      </label>
+                      <select
+                        name="paymentType"
+                        value={formData.paymentType}
+                        onChange={handleInputChange}
+                        className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-4 focus:ring-blue-100 font-medium"
+                      >
+                        <option>Cash</option>
+                        <option>Credit/Insurance</option>
+                        <option>Free Service</option>
+                      </select>
+                      {formData.paymentType === "Credit/Insurance" && (
+                        <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-[11px] font-bold uppercase text-slate-500 mb-1.5">
+                              Insurance / Credit Company
+                            </label>
+                            <input
+                              type="text"
+                              name="companyName"
+                              value={formData.companyName}
+                              onChange={handleInputChange}
+                              placeholder="Enter insurance or credit company name"
+                              className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-4 focus:ring-blue-100 font-medium"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-bold uppercase text-slate-500 mb-1.5">
+                              Insurance / Credit Number
+                            </label>
+                            <input
+                              type="text"
+                              name="policyNumber"
+                              value={formData.policyNumber || ""}
+                              onChange={handleInputChange}
+                              placeholder="Enter insurance or policy number"
+                              className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-4 focus:ring-blue-100 font-medium"
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold uppercase text-slate-500 mb-1.5">
+                        System Entry Dynamic Date/Time *
+                      </label>
+                      <input
+                        type="datetime-local"
+                        name="registrationTime"
+                        value={formData.registrationTime}
+                        onChange={handleInputChange}
+                        className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 font-mono focus:outline-none focus:ring-4 focus:ring-blue-100 font-medium"
+                      />
+                    </div>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 pt-2">
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider block">
-                        Legal Guardian Full Name (If Minor)
-                      </label>
-                      <input
-                        type="text"
-                        name="guardianFullName"
-                        value={formData.guardianFullName}
-                        onChange={handleInputChange}
-                        placeholder="Parent / Caregiver Identity"
-                        className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-xs font-bold focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider block">
-                        Guardian Relationship
-                      </label>
-                      <input
-                        type="text"
-                        name="guardianRelationship"
-                        value={formData.guardianRelationship}
-                        onChange={handleInputChange}
-                        placeholder="Relationship to Patient"
-                        className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-xs font-bold focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider block">
-                        Guardian Telephone Number
-                      </label>
-                      <input
-                        type="text"
-                        name="guardianPhone"
-                        value={formData.guardianPhone}
-                        onChange={handleInputChange}
-                        placeholder="Guardian Mobile Line"
-                        className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-xs font-bold focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* PHASE V: CLINICAL ARRIVAL NARRATIVE */}
-                <div className="space-y-4">
-                  <h3 className="text-[11px] font-black uppercase tracking-widest text-blue-600 border-b border-slate-100 pb-2 flex items-center gap-2">
-                    <Heart size={14} /> Section 5: Arrival Presentation &
-                    Referral Summary
-                  </h3>
-                  <div className="space-y-1.5">
-                    <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider block">
-                      Chief Complaint *
+                  <div>
+                    <label className="block text-[11px] font-bold uppercase text-slate-500 mb-1.5">
+                      Primary Chief Complaint Track Summary *
                     </label>
                     <textarea
                       name="chiefComplaint"
+                      rows="3"
                       value={formData.chiefComplaint}
                       onChange={handleInputChange}
-                      placeholder="Describe the presenting complaint in clinical detail"
-                      rows={4}
-                      className={`w-full px-4 py-3 rounded-xl border text-xs font-bold transition-all focus:outline-none ${formErrors.chiefComplaint ? "border-rose-400 bg-rose-50/20" : "border-slate-200 focus:ring-2 focus:ring-blue-500"}`}
-                    />
+                      placeholder="Log physiological presentation signs, triage symptoms and critical case history..."
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs text-slate-900 focus:outline-none focus:ring-4 focus:ring-blue-100 font-medium leading-relaxed"
+                    ></textarea>
                     {formErrors.chiefComplaint && (
-                      <p className="text-rose-500 text-[10px] font-bold mt-1 flex items-center gap-1">
-                        <AlertCircle size={11} />
+                      <p className="text-[10px] text-rose-600 font-semibold mt-1">
                         {formErrors.chiefComplaint}
                       </p>
                     )}
                   </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider block">
-                        Referred From
-                      </label>
-                      <select
-                        name="referredFrom"
-                        value={formData.referredFrom}
-                        onChange={handleInputChange}
-                        className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-xs font-bold bg-white focus:ring-2 focus:ring-blue-500"
-                      >
-                        <option value="Self-Referral">Self-Referral</option>
-                        <option value="Local Clinic">Local Clinic</option>
-                        <option value="Referral Hospital">
-                          Referral Hospital
-                        </option>
-                        <option value="Community Health Center">
-                          Community Health Center
-                        </option>
-                        <option value="Other">Other</option>
-                      </select>
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider block">
-                        Secondary Review Channel
-                      </label>
-                      <input
-                        type="text"
-                        name="companyName"
-                        value={formData.companyName}
-                        onChange={handleInputChange}
-                        placeholder="Optional payer or referral partner"
-                        className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-xs font-bold focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-                  </div>
                 </div>
 
-                {/* Form Actions Deck */}
-                <div className="flex flex-col sm:flex-row gap-3 items-center justify-end pt-4 border-t border-slate-100">
+                <div className="pt-4 border-t border-slate-100 flex justify-end gap-3.5">
                   <button
                     type="button"
-                    onClick={() => {
-                      setActiveTab("patientsList");
-                      setIsEditing(false);
-                      setSelectedPatient(null);
-                    }}
-                    className="w-full sm:w-auto px-5 py-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-bold uppercase tracking-wider transition-all"
+                    onClick={() => setActiveTab("patientsList")}
+                    className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold uppercase tracking-wider rounded-xl transition-all"
                   >
-                    Cancel
+                    Cancel Track
                   </button>
                   <button
                     type="submit"
-                    className="w-full sm:w-auto px-5 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold uppercase tracking-wider transition-all shadow-md"
+                    disabled={loading}
+                    className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-black uppercase tracking-wider rounded-xl transition-all shadow-md shadow-blue-600/10 disabled:opacity-50"
                   >
-                    {isEditing
-                      ? "Update Patient Record"
-                      : "Submit Admission Form"}
+                    {loading
+                      ? "Processing Block Transaction..."
+                      : isEditing
+                        ? "Push Updated State Block"
+                        : "Commit New Electronic Registry"}
                   </button>
                 </div>
-              </form>
+              </div>
+            </form>
+          )}
+
+          {/* VIEWPORT 4: AUDIT ACTIVITY LOG LEDGERS */}
+          {activeTab === "receptionAudit" && (
+            <div className="max-w-5xl mx-auto space-y-6 animate-fadeIn">
+              <div className="bg-white rounded-3xl p-6 border-b-4 border-rose-500 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div>
+                  <h2 className="text-base font-black uppercase tracking-widest text-slate-900">
+                    Security Access & Cryptographic Registry Auditor
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Immutable execution monitoring logs recording admissions
+                    activity metrics across localized platform node tracks.
+                  </p>
+                </div>
+                <button
+                  onClick={loadAuditLogs}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl tracking-wider uppercase transition-all"
+                >
+                  Force Reset Sync
+                </button>
+              </div>
+
+              <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-slate-50 text-slate-600 text-[11px] font-black uppercase tracking-wider border-b border-slate-200">
+                        <th className="py-4 px-6">Event Timestamp</th>
+                        <th className="py-4 px-6">Operator Node Account</th>
+                        <th className="py-4 px-6">Operational Action Event</th>
+                        <th className="py-4 px-6">Data Scope Vector Target</th>
+                        <th className="py-4 px-6">Network Point Address</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-xs font-mono font-medium text-slate-600">
+                      {auditLogsLoading ? (
+                        <tr>
+                          <td
+                            colSpan="5"
+                            className="py-12 text-center text-slate-400 font-sans"
+                          >
+                            Syncing security tracking parameters from
+                            infrastructure database engine...
+                          </td>
+                        </tr>
+                      ) : auditLogsError ? (
+                        <tr>
+                          <td
+                            colSpan="5"
+                            className="py-12 text-center text-rose-500 font-sans font-bold"
+                          >
+                            {auditLogsError}
+                          </td>
+                        </tr>
+                      ) : auditLogs.length > 0 ? (
+                        auditLogs.map((log, index) => (
+                          <tr
+                            key={index}
+                            className="hover:bg-slate-50/50 transition-colors"
+                          >
+                            <td className="py-4 px-6 text-slate-900 font-bold">
+                              {new Date(
+                                log.timestamp || log.createdAt,
+                              ).toLocaleString()}
+                            </td>
+                            <td className="py-4 px-6 text-blue-600 font-semibold">
+                              {log.operatorEmail ||
+                                log.user ||
+                                "system-admissions"}
+                            </td>
+                            <td className="py-4 px-6">
+                              <span
+                                className={`px-2 py-0.5 rounded text-[10px] font-bold ${log.action?.includes("PUT") || log.action?.includes("UPDATE") ? "bg-amber-50 text-amber-700 border border-amber-200" : log.action?.includes("POST") || log.action?.includes("CREATE") ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-slate-100 text-slate-700"}`}
+                              >
+                                {log.action || "API_TRANSACT"}
+                              </span>
+                            </td>
+                            <td className="py-4 px-6 text-slate-700 font-sans">
+                              {log.details ||
+                                log.description ||
+                                "No target telemetry metadata description tracked."}
+                            </td>
+                            <td className="py-4 px-6 font-bold text-slate-400">
+                              {log.ipAddress || "127.0.0.1"}
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td
+                            colSpan="5"
+                            className="py-12 text-center text-slate-400 font-sans"
+                          >
+                            No anomalies or historical event nodes logged in the
+                            current verification interval frame.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
           )}
         </main>

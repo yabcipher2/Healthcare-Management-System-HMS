@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
+import { logAudit, fetchAuditLogs, fetchAuditAlertsCount } from "../utils/audit";
 import {
   LineChart,
   Line,
@@ -79,12 +80,20 @@ const AdminDashboard = ({
   isMaintenanceMode,
   setIsMaintenanceMode,
   user,
+  navigateTo,
 }) => {
   const isAdmin = user?.role === "Administrator";
   const [activeTab, setActiveTab] = useState("overview");
-  const [systemStatus, setSystemStatus] = useState("open");
   const fileInputRef = useRef(null);
   const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:5000";
+
+  const getAuthHeaders = (isJson = true) => {
+    const token = localStorage.getItem("token")?.trim();
+    const headers = {};
+    if (isJson) headers["Content-Type"] = "application/json";
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    return headers;
+  };
 
   const statusInstructions = {
     open: {
@@ -107,8 +116,6 @@ const AdminDashboard = ({
     },
   };
 
-  const currentStatusInstruction = statusInstructions[systemStatus];
-
   // --- CONFIG BRANDING STATES ---
   const [hospitalName, setHospitalName] = useState("Mesra Digital Health");
   const [hospitalEmail, setHospitalEmail] = useState("contact@mesra.com");
@@ -116,11 +123,84 @@ const AdminDashboard = ({
   const [locationName, setLocationName] = useState("Addis Ababa, Ethiopia");
   const [adminPhone, setAdminPhone] = useState("+251 90 007 1103");
   const [mfaEnabled, setMfaEnabled] = useState(true);
+  const [systemStatus, setSystemStatus] = useState("open");
+
+  const currentStatusInstruction = statusInstructions[systemStatus] || statusInstructions["open"];
+
+  useEffect(() => {
+    const syncStatus = async () => {
+      try {
+        const response = await fetch(`${API_URL}/api/system/hospital-status`, {
+          headers: getAuthHeaders(false),
+        });
+        if (response.ok) {
+          const result = await response.json();
+          if (result.success && result.data.status) {
+            setSystemStatus(result.data.status);
+            setIsMaintenanceMode(result.data.status === "closed");
+          }
+        }
+      } catch (err) {
+        console.error("Status sync error:", err);
+      }
+    };
+    syncStatus();
+  }, [API_URL, getAuthHeaders]);
 
   // --- METRICS (Dashboard Architecture) ---
   const [systemHealth, setSystemHealth] = useState("98.4%");
   const [auditAlertsCount, setAuditAlertsCount] = useState(0);
+  const [auditLogs, setAuditLogs] = useState([]);
+  const [auditLogsLoading, setAuditLogsLoading] = useState(false);
+  const [auditLogsError, setAuditLogsError] = useState("");
+  const [auditLogSearch, setAuditLogSearch] = useState("");
+  const [auditLogModule, setAuditLogModule] = useState("");
+  const [auditLogPage, setAuditLogPage] = useState(1);
+  const [auditLogsMeta, setAuditLogsMeta] = useState({ page: 1, pages: 1, total: 0 });
   const [deptFilter, setDeptFilter] = useState("all");
+
+  const loadAuditAlertsCount = useCallback(async () => {
+    try {
+      const data = await fetchAuditAlertsCount();
+      setAuditAlertsCount(data);
+    } catch {
+      // Silently fail audit count fetch - non-critical
+    }
+  }, []);
+
+  const loadAuditLogs = useCallback(async () => {
+    setAuditLogsLoading(true);
+    setAuditLogsError("");
+    try {
+      const result = await fetchAuditLogs({
+        page: auditLogPage,
+        limit: 20,
+        module: auditLogModule || undefined,
+        search: auditLogSearch || undefined,
+      });
+      setAuditLogs(result.data || []);
+      setAuditLogsMeta(result.meta || { page: 1, pages: 1, total: 0 });
+    } catch (err) {
+      setAuditLogsError(err.message || "Failed to load audit logs");
+    } finally {
+      setAuditLogsLoading(false);
+    }
+  }, [auditLogPage, auditLogModule, auditLogSearch]);
+
+  useEffect(() => {
+    let interval;
+    if (activeTab === "overview") {
+      interval = setInterval(loadAuditAlertsCount, 30000);
+    }
+    return () => clearInterval(interval);
+  }, [activeTab, loadAuditAlertsCount]);
+
+  useEffect(() => {
+    if (activeTab === "audit") {
+      loadAuditAlertsCount();
+      loadAuditLogs();
+    }
+  }, [activeTab, loadAuditLogs, loadAuditAlertsCount]);
 
   // --- REFRESH UTILITY TIMESTAMPS ---
   const [lastSyncTime, setLastSyncTime] = useState(
@@ -214,10 +294,38 @@ const AdminDashboard = ({
     },
   ];
 
+  const staffDepartments = [
+    "General",
+    "General Medicine",
+    "Emergency",
+    "Surgery",
+    "Orthopedics",
+    "Pediatrics",
+    "Obstetrics & Gynecology",
+    "ENT (Otolaryngology)",
+    "Cardiology",
+    "Neurology",
+    "Psychiatry",
+    "Dermatology",
+    "Ophthalmology",
+    "Urology",
+    "Anesthesiology",
+    "Pathology",
+    "Radiology",
+    "Laboratory",
+    "Pharmacy",
+    "Ward / Inpatient",
+    "Triage",
+    "Reception",
+    "Administration",
+    "Physiotherapy",
+    "Nutrition & Dietetics",
+  ];
+
   // --- STAFF STATE (Staff_Directory & Professional Profiles) ---
   const [staffList, setStaffList] = useState([]);
 
-  // --- PATIENTS STATE (Patients Table Spec) ---
+  // --- PATIENTS STATE (Keep for profile management, not standalone registry) ---
   const [patientsList, setPatientsList] = useState([]);
 
   const [isLoading, setIsLoading] = useState(false);
@@ -240,14 +348,6 @@ const AdminDashboard = ({
     policyNumber: patient.policyNumber || "",
     avatarColor: patient.avatarColor || "bg-slate-500",
   });
-
-  const getAuthHeaders = (isJson = true) => {
-    const token = localStorage.getItem("token")?.trim();
-    const headers = {};
-    if (isJson) headers["Content-Type"] = "application/json";
-    if (token) headers["Authorization"] = `Bearer ${token}`;
-    return headers;
-  };
 
   const fetchStaffData = useCallback(async () => {
     try {
@@ -371,6 +471,15 @@ const AdminDashboard = ({
       setSelectedProfile(updatedProfile);
       setIsInlineEditing(false);
       alert("Database Synced: Internal modifications committed permanently.");
+
+      await logAudit({
+        action: "UPDATE",
+        module: managementTargetType === "staff" ? "Staff" : "Patient",
+        targetId: updatedProfile.id,
+        targetType: managementTargetType === "staff" ? "StaffProfile" : "PatientRecord",
+        details: `Updated profile for ${updatedProfile.name || updatedProfile.id}`,
+      });
+      loadAuditAlertsCount();
     } catch (error) {
       alert(`Save failed: ${error.message}`);
     }
@@ -380,15 +489,21 @@ const AdminDashboard = ({
     try {
       let targetNewStatus = "";
       let updatePayload = {};
+      let auditAction = "";
+      let auditModule = "";
 
       if (managementTargetType === "staff") {
         targetNewStatus =
           selectedProfile.contractStatus === "Active" ? "Inactive" : "Active";
         updatePayload = { contractStatus: targetNewStatus };
+        auditAction = targetNewStatus === "Active" ? "ACTIVATE" : "DEACTIVATE";
+        auditModule = "Staff";
       } else {
         targetNewStatus =
           selectedProfile.status === "Archived" ? "Admitted" : "Archived";
         updatePayload = { status: targetNewStatus };
+        auditAction = targetNewStatus === "Admitted" ? "RESTORE" : "ARCHIVE";
+        auditModule = "Patient";
       }
 
       const endpoint =
@@ -418,6 +533,15 @@ const AdminDashboard = ({
           patientsList.map((p) => (p.id === updated.id ? updated : p)),
         );
       }
+
+      await logAudit({
+        action: auditAction,
+        module: auditModule,
+        targetId: updated.id,
+        targetType: managementTargetType === "staff" ? "StaffProfile" : "PatientRecord",
+        details: `Status changed to ${targetNewStatus} for ${updated.name || updated.id}`,
+      });
+      loadAuditAlertsCount();
     } catch (error) {
       alert(`Status update failed: ${error.message}`);
     }
@@ -435,9 +559,31 @@ const AdminDashboard = ({
     }
   };
 
-  const handleStatusChange = (status) => {
+  const handleStatusChange = async (status) => {
     setSystemStatus(status);
     setIsMaintenanceMode(status === "closed");
+
+    try {
+      const response = await fetch(`${API_URL}/api/system/hospital-status`, {
+        method: "PUT",
+        headers: getAuthHeaders(true),
+        body: JSON.stringify({ status }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.message || "Failed to update system status");
+      }
+
+      await logAudit({
+        action: "UPDATE",
+        module: "System",
+        targetType: "HospitalStatus",
+        details: `Hospital status changed to ${status}`,
+      });
+      loadAuditAlertsCount();
+    } catch (err) {
+      alert(`Status sync failed: ${err.message}`);
+    }
   };
 
   const getRandomAvatarColor = () => {
@@ -490,6 +636,15 @@ const AdminDashboard = ({
 
       setStaffList([normalizeStaff(result.data), ...staffList]);
       setIsRegModalOpen(false);
+
+      await logAudit({
+        action: "CREATE",
+        module: "Staff",
+        targetId: result.data?.id || result.data?._id || "unknown",
+        targetType: "StaffProfile",
+        details: `New staff registered: ${createdStaff.name || "Unknown"}`,
+      });
+
       setNewStaff({
         name: "",
         email: "",
@@ -557,6 +712,27 @@ const AdminDashboard = ({
     else setDeptFilter("all");
   };
 
+  const handleDeptClick = (label) => {
+    const routes = {
+      "Laboratory Dashboard": "laboratory",
+      "Ultrasound / Radiology Dashboard": "home",
+      "Cashier Dashboard": "home",
+      "Pharmacy Dashboard": "pharmacy",
+      "Store Dashboard": "storemanagement",
+      "Ward Dashboard": "ward",
+      "Reception Dashboard": "reception",
+      "Doctor Dashboard": "doctor",
+      "Triage Dashboard": "triage",
+      "Nurse Dashboard": "nurse",
+    };
+    const route = routes[label];
+    if (route && navigateTo) {
+      navigateTo(route);
+    } else if (!route) {
+      alert(`Dashboard route not configured for: ${label}`);
+    }
+  };
+
   const currentTabItems = () => {
     if (activeTab === "staff") {
       return staffList.filter(
@@ -591,21 +767,21 @@ const AdminDashboard = ({
       `}</style>
 
       {/* SIDEBAR */}
-      <aside className="w-72 bg-white border-r border-slate-200 flex flex-col fixed h-full z-50">
-        <div className="p-8">
-          <div className="flex items-center gap-3 mb-10">
+      <aside className="w-64 bg-white border-r border-slate-200 flex flex-col fixed h-full z-50">
+        <div className="p-5">
+          <div className="flex items-center gap-3 mb-8">
             <img
               src={hospitalLogo}
               alt="Mesra Logo"
-              className="w-10 h-10 object-contain rounded-xl"
+              className="w-8 h-8 object-contain rounded-lg"
             />
-            <span className="text-2xl font-black italic uppercase text-blue-600">
+            <span className="text-xl font-black italic uppercase text-blue-600">
               Mesra
             </span>
           </div>
           <nav className="space-y-1">
             <NavItem
-              icon={<LayoutDashboard />}
+              icon={<LayoutDashboard size={18} />}
               label="Dashboard"
               active={activeTab === "overview" && !isManagementActive}
               onClick={() => {
@@ -614,7 +790,7 @@ const AdminDashboard = ({
               }}
             />
             <NavItem
-              icon={<Users />}
+              icon={<Users size={18} />}
               label="Staff Directory"
               active={activeTab === "staff" && !isManagementActive}
               onClick={() => {
@@ -625,18 +801,7 @@ const AdminDashboard = ({
               }}
             />
             <NavItem
-              icon={<UserCheck />}
-              label="Patient Registry"
-              active={activeTab === "patients" && !isManagementActive}
-              onClick={() => {
-                setActiveTab("patients");
-                setIsManagementActive(false);
-                setSearchTerm("");
-                setCurrentPage(1);
-              }}
-            />
-            <NavItem
-              icon={<UserCog />}
+              icon={<UserCog size={18} />}
               label="Profile"
               active={activeTab === "profile" && !isManagementActive}
               onClick={() => {
@@ -645,7 +810,16 @@ const AdminDashboard = ({
               }}
             />
             <NavItem
-              icon={<Settings />}
+              icon={<ClipboardList size={18} />}
+              label="Audit Logs"
+              active={activeTab === "audit" && !isManagementActive}
+              onClick={() => {
+                setActiveTab("audit");
+                setIsManagementActive(false);
+              }}
+            />
+            <NavItem
+              icon={<Settings size={18} />}
               label="Settings"
               active={activeTab === "settings" && !isManagementActive}
               onClick={() => {
@@ -657,87 +831,86 @@ const AdminDashboard = ({
         </div>
         <button
           onClick={() => {
-            // If your dashboard has access to state routing, use that, or hard refresh to home:
             window.location.href = "/";
           }}
-          className="w-full flex items-center justify-center gap-2 mb-2 px-4 py-2.5 bg-blue-600/10 hover:bg-blue-600 border border-blue-500/30 hover:border-blue-500 text-blue-400 hover:text-white text-xs font-bold uppercase tracking-wider rounded-xl transition-all"
+          className="w-full flex items-center justify-center gap-2 mx-2 mb-2 px-3 py-2 bg-blue-600/10 hover:bg-blue-600 border border-blue-500/30 hover:border-blue-500 text-blue-400 hover:text-white text-[11px] font-bold uppercase tracking-wider rounded-lg transition-all"
         >
-          <Activity size={14} /> View Public Site
+          <Activity size={13} /> Public
         </button>
         <button
           onClick={onLogout}
-          className="mt-auto m-8 flex items-center gap-3 p-4 text-red-500 font-black text-xs uppercase tracking-widest hover:bg-red-50 rounded-2xl transition-all cursor-pointer"
+          className="mx-4 mb-4 flex items-center justify-center gap-2 p-3 text-red-500 font-black text-[11px] uppercase tracking-widest hover:bg-red-50 rounded-xl transition-all cursor-pointer"
         >
-          <LogOut size={18} /> Logout
+          <LogOut size={15} /> Logout
         </button>
       </aside>
-      <main className="flex-1 ml-72 p-8">
-        {isManagementActive ? (
-          <div className="animate-fade-in-up space-y-6 max-w-4xl mx-auto">
-            {/* Nav Header Row */}
-            <div className="flex justify-between items-center border-b pb-4 border-slate-100">
-              <button
-                onClick={() => setIsManagementActive(false)}
-                className="flex items-center gap-2 text-slate-400 hover:text-slate-900 font-black text-xs uppercase tracking-widest transition-colors cursor-pointer"
-              >
-                <ArrowLeft size={16} /> Back to Directory
-              </button>
-              <div className="flex gap-2">
-                {isInlineEditing ? (
-                  <button
-                    onClick={saveInlineProfileChanges}
-                    className="bg-emerald-600 text-white px-5 py-3 rounded-xl font-black text-xs uppercase tracking-widest flex items-center gap-2 hover:bg-emerald-700 cursor-pointer shadow-md"
-                  >
-                    <Check size={14} /> Save Changes
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => setIsInlineEditing(true)}
-                    className="bg-slate-900 text-white px-5 py-3 rounded-xl font-black text-xs uppercase tracking-widest flex items-center gap-2 hover:bg-black cursor-pointer shadow-md"
-                  >
-                    <Edit size={14} /> Edit Profile
-                  </button>
-                )}
-                <button
-                  onClick={toggleStatusActivation}
-                  disabled={!selectedProfile}
-                  className={`px-5 py-3 rounded-xl font-black text-xs uppercase tracking-widest shadow-md transition-all ${!selectedProfile ? "opacity-50 cursor-not-allowed bg-slate-100 text-slate-400" : (managementTargetType === "staff" ? selectedProfile?.contractStatus === "Active" : selectedProfile?.status !== "Archived") ? "bg-red-50 text-red-600 hover:bg-red-100" : "bg-emerald-50 text-emerald-600 hover:bg-emerald-100"}`}
-                >
-                  {managementTargetType === "staff"
-                    ? selectedProfile?.contractStatus === "Active"
-                      ? "Inactivate Account"
-                      : "Activate Account"
-                    : selectedProfile?.status !== "Archived"
-                      ? "Archive Patient"
-                      : "Restore Patient"}
-                </button>
-              </div>
-            </div>
+        <main className="flex-1 md:ml-64 p-4 md:p-6">
+         {isManagementActive ? (
+           <div className="animate-fade-in-up space-y-4 max-w-4xl mx-auto">
+             {/* Nav Header Row */}
+             <div className="flex flex-wrap justify-between items-center gap-3 border-b pb-3 border-slate-100">
+               <button
+                 onClick={() => setIsManagementActive(false)}
+                 className="flex items-center gap-2 text-slate-400 hover:text-slate-900 font-black text-xs uppercase tracking-widest transition-colors cursor-pointer"
+               >
+                 <ArrowLeft size={16} /> Back
+               </button>
+               <div className="flex flex-wrap gap-2">
+                 {isInlineEditing ? (
+                   <button
+                     onClick={saveInlineProfileChanges}
+                     className="bg-emerald-600 text-white px-4 py-2 rounded-lg font-black text-[11px] uppercase tracking-widest flex items-center gap-2 hover:bg-emerald-700 cursor-pointer shadow-md"
+                   >
+                     <Check size={12} /> Save
+                   </button>
+                 ) : (
+                   <button
+                     onClick={() => setIsInlineEditing(true)}
+                     className="bg-slate-900 text-white px-4 py-2 rounded-lg font-black text-[11px] uppercase tracking-widest flex items-center gap-2 hover:bg-black cursor-pointer shadow-md"
+                   >
+                     <Edit size={12} /> Edit
+                   </button>
+                 )}
+                 <button
+                   onClick={toggleStatusActivation}
+                   disabled={!selectedProfile}
+                   className={`px-4 py-2 rounded-lg font-black text-[11px] uppercase tracking-widest shadow-md transition-all ${!selectedProfile ? "opacity-50 cursor-not-allowed bg-slate-100 text-slate-400" : (managementTargetType === "staff" ? selectedProfile?.contractStatus === "Active" : selectedProfile?.status !== "Archived") ? "bg-red-50 text-red-600 hover:bg-red-100" : "bg-emerald-50 text-emerald-600 hover:bg-emerald-100"}`}
+                 >
+                   {managementTargetType === "staff"
+                     ? selectedProfile?.contractStatus === "Active"
+                       ? "Inactivate"
+                       : "Activate"
+                     : selectedProfile?.status !== "Archived"
+                       ? "Archive"
+                       : "Restore"}
+                 </button>
+               </div>
+             </div>
 
-            {/* Dossier Card Sheet Layout */}
-            <div className="bg-white rounded-[2.5rem] border border-slate-100 p-8 shadow-sm grid md:grid-cols-3 gap-8">
-              <div className="text-center md:border-r border-slate-50 md:pr-8 flex flex-col justify-center">
-                <div
-                  className={`w-36 h-36 ${selectedProfile?.avatarColor || "bg-blue-600"} rounded-[2.5rem] flex items-center justify-center text-white text-5xl font-black mx-auto mb-4 shadow-xl border-4 border-white`}
-                >
-                  {selectedProfile?.name ? selectedProfile.name[0] : ""}
-                </div>
-                <h2 className="text-xl font-black text-slate-900">
-                  {selectedProfile?.name || "—"}
-                </h2>
-                <p className="text-xs font-bold text-blue-500 uppercase mt-1 tracking-wider">
-                  ID: {selectedProfile?.id || "—"}
-                </p>
-                <div className="mt-4">
-                  <span
-                    className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider ${(managementTargetType === "staff" ? selectedProfile?.contractStatus === "Active" : selectedProfile?.status !== "Archived") ? "bg-emerald-100 text-emerald-600" : "bg-slate-100 text-slate-500"}`}
-                  >
-                    {managementTargetType === "staff"
-                      ? selectedProfile?.contractStatus || "—"
-                      : selectedProfile?.status || "—"}
-                  </span>
-                </div>
-              </div>
+             {/* Dossier Card Sheet Layout */}
+             <div className="bg-white rounded-2xl border border-slate-100 p-4 md:p-6 shadow-sm grid md:grid-cols-3 gap-4 md:gap-6">
+               <div className="text-center md:border-r border-slate-50 md:pr-6 flex flex-col justify-center">
+                 <div
+                   className={`w-24 h-24 md:w-28 md:h-28 ${selectedProfile?.avatarColor || "bg-blue-600"} rounded-2xl flex items-center justify-center text-white text-4xl font-black mx-auto mb-3 shadow-lg border-4 border-white`}
+                 >
+                   {selectedProfile?.name ? selectedProfile.name[0] : ""}
+                 </div>
+                 <h2 className="text-lg font-black text-slate-900">
+                   {selectedProfile?.name || "—"}
+                 </h2>
+                 <p className="text-[11px] font-bold text-blue-500 uppercase mt-1 tracking-wider">
+                   ID: {selectedProfile?.id || "—"}
+                 </p>
+                 <div className="mt-3">
+                   <span
+                     className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${(managementTargetType === "staff" ? selectedProfile?.contractStatus === "Active" : selectedProfile?.status !== "Archived") ? "bg-emerald-100 text-emerald-600" : "bg-slate-100 text-slate-500"}`}
+                   >
+                     {managementTargetType === "staff"
+                       ? selectedProfile?.contractStatus || "—"
+                       : selectedProfile?.status || "—"}
+                   </span>
+                 </div>
+               </div>
 
               <div className="md:col-span-2 space-y-6">
                 <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 border-b pb-1">
@@ -1016,20 +1189,13 @@ const AdminDashboard = ({
                   </p>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <StatCardGraph
                     label="Total Staff"
                     value={staffList.length}
                     color="#3B82F6"
                     bgColor="bg-blue-50/50"
                     onAnchorAction={() => setActiveTab("staff")}
-                  />
-                  <StatCardGraph
-                    label="Total Patient Number"
-                    value={patientsList.length}
-                    color="#10B981"
-                    bgColor="bg-emerald-50/50"
-                    onAnchorAction={() => setActiveTab("patients")}
                   />
                   <StatCardGraph
                     label="System Health"
@@ -1043,7 +1209,7 @@ const AdminDashboard = ({
                     value={auditAlertsCount}
                     color="#EF4444"
                     bgColor="bg-rose-50/50"
-                    onAnchorAction={() => setActiveTab("settings")}
+                    onAnchorAction={() => setActiveTab("audit")}
                   />
                 </div>
 
@@ -1068,6 +1234,7 @@ const AdminDashboard = ({
                           label={dept.label}
                           sub={dept.sub}
                           color={dept.color}
+                          onClick={() => handleDeptClick(dept.label)}
                         />
                       ))}
                     </div>
@@ -1373,6 +1540,124 @@ const AdminDashboard = ({
               </div>
             )}
 
+            {/* TAB 4: AUDIT LOGS */}
+            {activeTab === "audit" && (
+              <div className="animate-fade-in-up space-y-6">
+                <div className="flex justify-between items-end">
+                  <div>
+                    <h1 className="text-4xl font-black text-slate-900 italic">
+                      Audit Logs
+                    </h1>
+                    <p className="text-slate-400 font-medium mt-1">
+                      System-wide change history
+                    </p>
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden">
+                  <div className="p-6 border-b border-slate-50 flex items-center gap-4 bg-slate-50/30">
+                    <Search className="text-slate-300" size={20} />
+                    <input
+                      type="text"
+                      placeholder="Search logs by user, action, or target..."
+                      className="bg-transparent border-none outline-none font-bold text-sm w-full"
+                      value={auditLogSearch}
+                      onChange={(e) => {
+                        setAuditLogSearch(e.target.value);
+                        setAuditLogPage(1);
+                      }}
+                    />
+                  </div>
+
+                  {auditLogsLoading ? (
+                    <div className="p-8 text-center text-xs font-black text-slate-400 uppercase tracking-widest">
+                      Loading audit logs...
+                    </div>
+                  ) : auditLogsError ? (
+                    <div className="p-8 text-center text-xs font-black text-red-600 uppercase tracking-widest">
+                      {auditLogsError}
+                    </div>
+                  ) : auditLogs.length === 0 ? (
+                    <div className="p-8 text-center text-xs font-black text-slate-400 uppercase tracking-widest">
+                      No audit logs found
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left min-w-[1000px]">
+                        <thead>
+                          <tr className="text-[10px] font-black uppercase text-slate-400 border-b tracking-widest p-6">
+                            <th className="p-6">Action</th>
+                            <th className="p-6">Module</th>
+                            <th className="p-6">User</th>
+                            <th className="p-6">Target</th>
+                            <th className="p-6">Department</th>
+                            <th className="p-6">Details</th>
+                          </tr>
+                        </thead>
+                        <tbody className="text-sm font-bold text-slate-600">
+                          {auditLogs.map((log) => (
+                            <tr
+                              key={log._id}
+                              className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors"
+                            >
+                              <td className="p-6">
+                                <span className="text-slate-900 block font-black">
+                                  {log.action}
+                                </span>
+                                <span className="text-[10px] text-slate-400 font-mono block">
+                                  {new Date(log.createdAt).toLocaleString()}
+                                </span>
+                              </td>
+                              <td className="p-6 text-slate-800 text-xs uppercase">{log.module}</td>
+                              <td className="p-6">
+                                <span className="text-slate-900 block">{log.userName}</span>
+                                <span className="text-[10px] text-slate-400 block font-normal">
+                                  {log.userRole}
+                                </span>
+                              </td>
+                              <td className="p-6 text-slate-500 text-xs font-mono">
+                                {log.targetId || "—"}
+                              </td>
+                              <td className="p-6 text-slate-500 text-xs uppercase">
+                                {log.department || "—"}
+                              </td>
+                              <td className="p-6 text-slate-500 text-xs max-w-[320px] truncate">
+                                {log.details || "—"}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  <div className="p-4 border-t border-slate-50 flex justify-between items-center">
+                    <span className="text-[10px] text-slate-400 font-black uppercase tracking-wider">
+                      Page {auditLogsMeta.page} of {auditLogsMeta.pages} • Total {auditLogsMeta.total}
+                    </span>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setAuditLogPage((p) => Math.max(1, p - 1))}
+                        disabled={auditLogsMeta.page <= 1}
+                        className="px-4 py-2 bg-slate-50 border border-slate-100 text-slate-600 rounded-xl text-xs font-black uppercase tracking-wider hover:bg-slate-100 disabled:opacity-50"
+                      >
+                        Prev
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setAuditLogPage((p) => p + 1)}
+                        disabled={auditLogsMeta.page >= auditLogsMeta.pages}
+                        className="px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-black uppercase tracking-wider hover:bg-slate-800 disabled:opacity-50"
+                      >
+                        Next
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* TAB 5: SETTINGS */}
             {activeTab === "settings" && (
               <div className="max-w-4xl mx-auto animate-fade-in-up space-y-8">
@@ -1473,13 +1758,6 @@ const AdminDashboard = ({
                             <span className="text-lg font-black text-red-500">
                               {auditAlertsCount}
                             </span>
-                            <button
-                              type="button"
-                              onClick={() => setAuditAlertsCount((p) => p + 1)}
-                              className="text-[9px] bg-red-50 text-red-600 font-black px-2 py-1 rounded uppercase tracking-wider ml-auto"
-                            >
-                              Trigger Alert
-                            </button>
                           </div>
                         </div>
                       </div>
@@ -1869,20 +2147,26 @@ const AdminDashboard = ({
                     <option>Radiology</option>
                   </select>
                 </div>
-                <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase ml-1">
-                    Department
-                  </label>
-                  <input
-                    type="text"
-                    className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold mt-1 text-xs outline-none"
-                    value={newStaff.dept}
-                    onChange={(e) =>
-                      setNewStaff({ ...newStaff, dept: e.target.value })
-                    }
-                    required
-                  />
-                </div>
+                 <div>
+                   <label className="text-[10px] font-black text-slate-400 uppercase ml-1">
+                     Department
+                   </label>
+                   <select
+                     className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold mt-1 text-xs outline-none"
+                     value={newStaff.dept}
+                     onChange={(e) =>
+                       setNewStaff({ ...newStaff, dept: e.target.value })
+                     }
+                     required
+                   >
+                     <option value="">Select Department</option>
+                     {staffDepartments.map((dept) => (
+                       <option key={dept} value={dept}>
+                         {dept}
+                       </option>
+                     ))}
+                   </select>
+                 </div>
                 <div>
                   <label className="text-[10px] font-black text-slate-400 uppercase ml-1">
                     Qualification
@@ -1909,7 +2193,10 @@ const AdminDashboard = ({
                     className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold mt-1 text-xs outline-none"
                     value={newStaff.certNo}
                     onChange={(e) =>
-                      setNewStaff({ ...newStaff, certNo: e.target.value })
+                      setNewStaff({
+                        ...newStaff,
+                        certNo: e.target.value,
+                      })
                     }
                     required
                   />
@@ -2025,7 +2312,7 @@ const StatCardGraph = ({ label, value, color, bgColor, onAnchorAction }) => (
   </div>
 );
 
-const DeptCard = ({ icon, label, sub, color }) => {
+const DeptCard = ({ icon, label, sub, color, onClick }) => {
   const colorMap = {
     emerald: "bg-emerald-50/60 text-emerald-600",
     blue: "bg-blue-50/60 text-blue-600",
@@ -2036,7 +2323,8 @@ const DeptCard = ({ icon, label, sub, color }) => {
   };
   return (
     <div
-      className={`${colorMap[color]} p-5 rounded-2xl flex items-center justify-between group cursor-pointer border border-white hover:bg-white hover:shadow-md transition-all`}
+      onClick={onClick}
+      className={`${colorMap[color]} p-5 rounded-2xl flex items-center justify-between group border border-white hover:bg-white hover:shadow-md transition-all cursor-pointer active:scale-95`}
     >
       <div className="flex items-center gap-4">
         <div className="bg-white p-3 rounded-xl shadow-sm text-slate-800">

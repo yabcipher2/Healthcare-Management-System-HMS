@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   Pill,
   Activity,
@@ -17,10 +17,18 @@ import {
   ArrowUpRight,
   Filter,
   Info,
+  ShieldAlert,
+  X,
+  FileText,
 } from "lucide-react";
+import {
+  logAudit,
+  fetchAuditLogs,
+  fetchAuditAlertsCount,
+} from "../utils/audit";
 
 export default function PharmacyPage({ onLogout }) {
-  const [activeTab, setActiveTab] = useState("dashboard"); // dashboard, prescriptions, inventory
+  const [activeTab, setActiveTab] = useState("dashboard"); // dashboard, prescriptions, inventory, pharmacyAudit
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedOrder, setSelectedOrder] = useState(null);
   const hospitalLogo = "/mesra icon.png";
@@ -34,13 +42,44 @@ export default function PharmacyPage({ onLogout }) {
   const [orders, setOrders] = useState([]);
   const [todayDispensedCount, setTodayDispensedCount] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [auditAlertsCount, setAuditAlertsCount] = useState(0);
+  const [auditLogs, setAuditLogs] = useState([]);
+  const [auditLogsLoading, setAuditLogsLoading] = useState(false);
+  const [auditLogsError, setAuditLogsError] = useState("");
 
-  // Doctor Dispatch State
-  const [selectedDepartment, setSelectedDepartment] = useState("");
-  const [doctorsByDepartment, setDoctorsByDepartment] = useState([]);
-  const [dispatchingDoctor, setDispatchingDoctor] = useState(false);
-  const [dispatchStatus, setDispatchStatus] = useState(null); // null, 'success', 'error'
+  const loadAuditAlertsCount = useCallback(async () => {
+    try {
+      const data = await fetchAuditAlertsCount();
+      setAuditAlertsCount(data);
+    } catch {
+      // Silently fail audit count fetch - non-critical
+    }
+  }, []);
+
+  const loadAuditLogs = useCallback(async () => {
+    setAuditLogsLoading(true);
+    setAuditLogsError("");
+    try {
+      const result = await fetchAuditLogs({ page: 1, limit: 20 });
+      setAuditLogs(result.data || []);
+    } catch (err) {
+      setAuditLogsError(err.message || "Failed to load audit logs");
+    } finally {
+      setAuditLogsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadAuditAlertsCount();
+    loadAuditLogs();
+  }, [loadAuditAlertsCount, loadAuditLogs]);
+
+  useEffect(() => {
+    const interval = setInterval(() => loadAuditAlertsCount(), 30000);
+    return () => clearInterval(interval);
+  }, [loadAuditAlertsCount]);
+
+  const [error, setError] = useState(null);
 
   // Fetch inventory and orders on component mount
   useEffect(() => {
@@ -85,12 +124,10 @@ export default function PharmacyPage({ onLogout }) {
     today.setHours(0, 0, 0, 0);
 
     const count = orders.filter((order) => {
-      // Check if order is dispensed (either status or dispenseStatus)
       const isDispensed =
         order.status === "Dispensed" || order.dispenseStatus === "Dispensed";
       if (!isDispensed) return false;
 
-      // Check if order was created today (timestamp is stored as ISO string)
       const orderDate = new Date(order.timestamp);
       return orderDate >= today;
     }).length;
@@ -183,6 +220,15 @@ export default function PharmacyPage({ onLogout }) {
             >
               <Package size={16} /> Master Formulary Stock
             </button>
+            <button
+              onClick={() => {
+                setActiveTab("pharmacyAudit");
+                loadAuditLogs();
+              }}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all ${activeTab === "pharmacyAudit" ? "bg-rose-50 text-rose-600 border border-rose-100" : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"}`}
+            >
+              <ShieldAlert size={16} /> Audit Activity ({auditAlertsCount})
+            </button>
           </nav>
         </div>
 
@@ -194,11 +240,9 @@ export default function PharmacyPage({ onLogout }) {
           </div>
           <button
             onClick={() => {
-              // 1. Session Cleansing Sequence
-              localStorage.clear(); // Flush application state & tokens from local cache
-              sessionStorage.clear(); // Purge temporary runtime session values
-
-              // 2. Client Routing Redirection
+              localStorage.clear();
+              sessionStorage.clear();
+              if (onLogout) onLogout();
               window.location.href = "/login";
             }}
             className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-900 hover:bg-rose-950/40 border border-slate-800 hover:border-rose-900 text-slate-400 hover:text-rose-400 text-xs font-bold uppercase tracking-wider rounded-xl transition-all"
@@ -218,6 +262,7 @@ export default function PharmacyPage({ onLogout }) {
                 ? "Electronic Prescription Validation"
                 : "Active Medical Routing Stream")}
             {activeTab === "inventory" && "Real-Time Central Stock Manifest"}
+            {activeTab === "pharmacyAudit" && "Security Auditing Protocols"}
           </h1>
           <div className="flex items-center gap-2 font-mono text-xs text-slate-500 bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200/40">
             <Clock size={12} className="text-blue-600" /> Active System Sync:{" "}
@@ -225,6 +270,7 @@ export default function PharmacyPage({ onLogout }) {
           </div>
         </header>
 
+        {/* WORKSPACE VIEWS WRAPPED PROPERLY INSIDE MAIN SCROLL CONTAINER */}
         <main className="flex-1 p-8 overflow-y-auto">
           {/* DYNAMIC PHARMACY OPERATIONAL DASHBOARD */}
           {activeTab === "dashboard" && (
@@ -259,7 +305,7 @@ export default function PharmacyPage({ onLogout }) {
                     icon: <TrendingUp size={18} />,
                     bg: "bg-emerald-50 text-emerald-600 border border-emerald-100",
                   },
-                ].map((stat, idx) => (
+                ].map((stat) => (
                   <div
                     key={stat.label}
                     className="p-5 rounded-2xl flex items-center justify-between shadow-sm bg-white border border-slate-200/60"
@@ -279,7 +325,6 @@ export default function PharmacyPage({ onLogout }) {
                 ))}
               </div>
 
-              {/* Warnings and Quick Navigation Callout */}
               <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div className="space-y-1">
                   <h4 className="font-bold text-slate-900 text-sm">
@@ -559,6 +604,90 @@ export default function PharmacyPage({ onLogout }) {
                       ))}
                   </tbody>
                 </table>
+              </div>
+            </div>
+          )}
+
+          {/* DEPARTMENT AUDIT LOGS */}
+          {activeTab === "pharmacyAudit" && (
+            <div className="space-y-6 animate-fadeIn">
+              <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/30">
+                  <div>
+                    <h1 className="text-2xl font-black text-slate-900">
+                      Department Audit Logs
+                    </h1>
+                    <p className="text-slate-400 font-medium mt-1">
+                      Your recent activity and department changes
+                    </p>
+                  </div>
+                  <span className="text-xs font-mono font-bold bg-rose-50 text-rose-600 border border-rose-100 px-3 py-1.5 rounded-lg uppercase">
+                    Pharmacy Dept
+                  </span>
+                </div>
+                {auditLogsError && (
+                  <div className="mx-6 mt-6 p-4 bg-rose-50 border border-rose-200 rounded-xl text-xs font-bold text-rose-700">
+                    {auditLogsError}
+                  </div>
+                )}
+                {auditLogsLoading ? (
+                  <div className="p-10 text-center text-xs font-black text-slate-400 uppercase tracking-wider">
+                    Loading audit logs...
+                  </div>
+                ) : auditLogs.length === 0 ? (
+                  <div className="p-10 text-center text-xs font-black text-slate-400 uppercase tracking-wider">
+                    No audit logs found for your department
+                  </div>
+                ) : (
+                  <div className="divide-y divide-slate-100">
+                    {auditLogs.map((log) => (
+                      <div
+                        key={log._id || log.id}
+                        className="p-5 flex items-start gap-4 hover:bg-slate-50/50 transition"
+                      >
+                        <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center shrink-0 text-slate-500">
+                          {log.action === "CREATE" && <Plus size={18} />}
+                          {log.action === "UPDATE" && <FileText size={18} />}
+                          {log.action === "DELETE" && <X size={18} />}
+                          {[
+                            "ACTIVATE",
+                            "DEACTIVATE",
+                            "RESTORE",
+                            "ARCHIVE",
+                          ].includes(log.action) && <Activity size={18} />}
+                          {log.action === "LOGIN" && <LogOut size={18} />}
+                          {![
+                            "CREATE",
+                            "UPDATE",
+                            "DELETE",
+                            "ACTIVATE",
+                            "DEACTIVATE",
+                            "RESTORE",
+                            "ARCHIVE",
+                            "LOGIN",
+                          ].includes(log.action) && <ClipboardList size={18} />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-xs font-black text-slate-900 uppercase">
+                              {log.module}
+                            </span>
+                            <span className="text-[10px] font-mono font-bold bg-blue-50 text-blue-600 px-2 py-0.5 rounded uppercase">
+                              {log.action}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                            {log.details}
+                          </p>
+                          <p className="text-[10px] text-slate-400 mt-1.5 font-mono">
+                            {log.userName} • {log.userRole} • {log.department} •{" "}
+                            {new Date(log.createdAt).toLocaleString()}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           )}

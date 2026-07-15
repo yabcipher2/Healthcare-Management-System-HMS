@@ -3,16 +3,45 @@ const LabOrder = require("../models/LabOrder");
 const PharmacyOrder = require("../models/PharmacyOrder");
 const StaffProfile = require("../models/StaffProfile");
 const User = require("../models/User");
+const AuditLog = require("../models/AuditLog");
+
+const logAudit = async (req, action, module, details, targetId = "", targetType = "PatientRecord") => {
+  try {
+    await AuditLog.create({
+      action,
+      module,
+      userId: req.user?._id || req.user?.id || "unknown",
+      userName: req.user?.name || "Unknown",
+      userRole: req.user?.role || "unknown",
+      department: req.user?.dept || "",
+      targetId: targetId || "",
+      targetType,
+      details: details || "",
+      ipAddress: req.ip || "",
+    });
+  } catch (err) {
+    console.error("Audit log failed:", err.message);
+  }
+};
 
 const getDoctorCases = async (req, res) => {
   try {
-    // Get patients assigned to the current doctor, regardless of status
-    const cases = await PatientRecord.find({
-      "consultation.assignedDoctor": req.user._id,
-    })
+    const doctorUserId = req.user._id;
+    const staffProfile = await StaffProfile.findOne({ profileId: doctorUserId, jobTitle: "Doctor" });
+    const doctorDept = staffProfile?.dept || "";
+
+    const query = {
+      "consultation.assignedDoctor": doctorUserId,
+    };
+
+    if (doctorDept) {
+      query.triageDepartment = doctorDept;
+    }
+
+    const cases = await PatientRecord.find(query)
       .sort({ updatedAt: -1 })
       .select(
-        "cardId patientName firstName middleName lastName age gender triage consultation currentStatus laboratory pharmacy",
+        "cardId patientName firstName middleName lastName age gender triage consultation currentStatus laboratory pharmacy triageDepartment",
       );
 
     res.status(200).json({ success: true, count: cases.length, data: cases });
@@ -23,18 +52,31 @@ const getDoctorCases = async (req, res) => {
 
 const getDoctorPatient = async (req, res) => {
   try {
-    // Get a specific patient only if assigned to the current doctor
-    const patient = await PatientRecord.findOne({
+    const doctorUserId = req.user._id;
+    const staffProfile = await StaffProfile.findOne({ profileId: doctorUserId, jobTitle: "Doctor" });
+    const doctorDept = staffProfile?.dept || "";
+
+    const query = {
       _id: req.params.id,
-      "consultation.assignedDoctor": req.user._id,
-    }).select(
-      "cardId patientName firstName middleName lastName age gender triage consultation currentStatus laboratory pharmacy",
-    );
+      "consultation.assignedDoctor": doctorUserId,
+    };
+
+    if (doctorDept) {
+      query.triageDepartment = doctorDept;
+    }
+
+    const patient = await PatientRecord.findOne(query)
+      .select(
+        "cardId patientName firstName middleName lastName age gender triage consultation currentStatus laboratory pharmacy triageDepartment",
+      );
 
     if (!patient) {
       return res
         .status(404)
-        .json({ success: false, message: "Patient not found or not assigned to you" });
+        .json({
+          success: false,
+          message: "Patient not found or not assigned to you",
+        });
     }
 
     res.status(200).json({ success: true, data: patient });
@@ -45,77 +87,93 @@ const getDoctorPatient = async (req, res) => {
 
 const getDoctorsByDepartment = async (req, res) => {
   try {
-    const { department } = req.params;
-    
+    let { department } = req.params;
+
+    // Safely extract string if department was mistakenly passed as an object string template
+    if (department && department.includes("[object Object]")) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid department parameter format",
+      });
+    }
+
     if (!department || department.trim().length === 0) {
       return res.status(400).json({
         success: false,
-        message: "Department parameter is required"
+        message: "Department parameter is required",
       });
     }
-    
-    console.log(`[getDoctorsByDepartment] Fetching doctors for department: ${department}`);
-    
+
+    const targetDept = department.trim();
+    console.log(
+      `[getDoctorsByDepartment] Fetching doctors for department: ${targetDept}`,
+    );
+
     // Find staff profiles matching the department (exact match, case-insensitive)
     const staffProfiles = await StaffProfile.find({
-      dept: { 
-        $regex: new RegExp(`^${department.trim()}$`, "i") 
-      }
+      dept: {
+        $regex: new RegExp(`^${targetDept}$`, "i"),
+      },
     });
-    
-    console.log(`[getDoctorsByDepartment] Found ${staffProfiles.length} staff profiles`);
-    
+
+    console.log(
+      `[getDoctorsByDepartment] Found ${staffProfiles.length} staff profiles`,
+    );
+
     if (staffProfiles.length === 0) {
-      console.log(`[getDoctorsByDepartment] No staff profiles found for department: ${department}`);
-      return res.status(200).json({ 
-        success: true, 
-        count: 0, 
+      return res.status(200).json({
+        success: true,
+        count: 0,
         data: [],
-        message: `No doctors found in ${department} department`
+        message: `No doctors found in ${targetDept} department`,
       });
     }
-    
+
     // Get the user details for these staff members using staffId linkage
     const staffIds = staffProfiles
-      .map(profile => profile.staffId)
+      .map((profile) => profile.staffId)
       .filter(Boolean); // Remove null/undefined
-    
-    console.log(`[getDoctorsByDepartment] Staff IDs: ${staffIds.join(", ")}`);
-    
+
     if (staffIds.length === 0) {
-      console.log(`[getDoctorsByDepartment] No valid staffIds found in profiles`);
-      return res.status(200).json({ 
-        success: true, 
-        count: 0, 
+      return res.status(200).json({
+        success: true,
+        count: 0,
         data: [],
-        message: "No staff IDs linked to department"
+        message: "No staff IDs linked to department",
       });
     }
-    
-    // Try both _id and staffId field since there might be linking issues
-    const doctors = await User.find({
-      $or: [
-        { staffId: { $in: staffIds }, role: "Doctor" },
-        { _id: { $in: staffIds }, role: "Doctor" }
-      ]
-    })
+
+    // Build query to dynamically look up matching user records cleanly
+    const queryConditions = [{ staffId: { $in: staffIds }, role: "Doctor" }];
+
+    // Safely verify if any staff IDs match standard MongoDB 24-char hex ObjectIDs before querying by _id
+    const validObjectIds = staffIds.filter((id) =>
+      /^[0-9a-fA-F]{24}$/.test(id.toString()),
+    );
+    if (validObjectIds.length > 0) {
+      queryConditions.push({ _id: { $in: validObjectIds }, role: "Doctor" });
+    }
+
+    const doctors = await User.find({ $or: queryConditions })
       .select("-password")
       .lean();
-    
+
     console.log(`[getDoctorsByDepartment] Found ${doctors.length} doctors`);
-    
-    res.status(200).json({ 
-      success: true, 
-      count: doctors.length, 
+
+    res.status(200).json({
+      success: true,
+      count: doctors.length,
       data: doctors,
-      message: doctors.length === 0 ? `No doctors found in ${department} department` : undefined
+      message:
+        doctors.length === 0
+          ? `No doctors found in ${targetDept} department`
+          : undefined,
     });
   } catch (error) {
     console.error("[getDoctorsByDepartment] Error:", error);
-    res.status(500).json({ 
-      success: false, 
+    res.status(500).json({
+      success: false,
       message: error.message,
-      details: process.env.NODE_ENV === "development" ? error.stack : undefined
     });
   }
 };
@@ -123,28 +181,26 @@ const getDoctorsByDepartment = async (req, res) => {
 const getAllDepartments = async (req, res) => {
   try {
     console.log("[getAllDepartments] Fetching all departments");
-    
+
     // Get all unique departments from StaffProfile
     const departments = await StaffProfile.distinct("dept");
-    
+
     // Filter out empty/null values and sort
     const filteredDepartments = departments
-      .filter(dept => dept && dept.trim().length > 0)
+      .filter((dept) => dept && dept.toString().trim().length > 0)
+      .map((dept) => dept.toString().trim())
       .sort();
-    
-    console.log(`[getAllDepartments] Found ${filteredDepartments.length} departments: ${filteredDepartments.join(", ")}`);
-    
-    res.status(200).json({ 
-      success: true, 
-      count: filteredDepartments.length, 
-      data: filteredDepartments
+
+    res.status(200).json({
+      success: true,
+      count: filteredDepartments.length,
+      data: filteredDepartments,
     });
   } catch (error) {
     console.error("[getAllDepartments] Error:", error);
-    res.status(500).json({ 
-      success: false, 
+    res.status(500).json({
+      success: false,
       message: error.message,
-      details: process.env.NODE_ENV === "development" ? error.stack : undefined
     });
   }
 };
@@ -152,51 +208,53 @@ const getAllDepartments = async (req, res) => {
 const dispatchToDoctor = async (req, res) => {
   try {
     const { orderId, department, dispatchedBy, timestamp } = req.body;
-    
-    // Validate required fields
+
     if (!orderId || !department) {
       return res.status(400).json({
         success: false,
-        message: "Order ID and department are required"
+        message: "Order ID and department are required",
       });
     }
 
-    // Find the pharmacy order
     const pharmacyOrder = await PharmacyOrder.findById(orderId);
     if (!pharmacyOrder) {
       return res.status(404).json({
         success: false,
-        message: "Pharmacy order not found"
+        message: "Pharmacy order not found",
       });
     }
 
-    // Find doctors in the specified department
     const staffProfiles = await StaffProfile.find({ dept: department });
-    const doctorIds = staffProfiles.map(profile => profile.staffId);
-    const doctors = await User.find({ _id: { $in: doctorIds }, role: "Doctor" });
-    
+    const doctorIds = staffProfiles.map((profile) => profile.staffId);
+
+    const queryConditions = [];
+    const validObjectIds = doctorIds.filter((id) =>
+      /^[0-9a-fA-F]{24}$/.test(id?.toString()),
+    );
+    if (validObjectIds.length > 0) {
+      queryConditions.push({ _id: { $in: validObjectIds }, role: "Doctor" });
+    }
+    queryConditions.push({ staffId: { $in: doctorIds }, role: "Doctor" });
+
+    const doctors = await User.find({ $or: queryConditions });
+
     if (doctors.length === 0) {
       return res.status(404).json({
         success: false,
-        message: "No doctors found in the specified department"
+        message: "No doctors found in the specified department",
       });
     }
 
-    // For simplicity, we'll select the first doctor in the department
-    // In a real system, you might want to consider workload, specialty, etc.
     const selectedDoctor = doctors[0];
-    
-    // Create a dispatch record or notification
-    // For now, we'll just update the pharmacy order with dispatch info
-    // In a real system, you might create a separate Dispatch model
+
     pharmacyOrder.dispatchInfo = {
       dispatchedToDepartment: department,
       dispatchedToDoctor: selectedDoctor.name,
       dispatchedBy: dispatchedBy || "Pharmacist",
       dispatchedAt: timestamp || new Date().toISOString(),
-      status: "Dispatched to Doctor"
+      status: "Dispatched to Doctor",
     };
-    
+
     await pharmacyOrder.save();
 
     res.status(200).json({
@@ -206,13 +264,13 @@ const dispatchToDoctor = async (req, res) => {
         orderId,
         department,
         dispatchedToDoctor: selectedDoctor.name,
-        dispatchedAt: pharmacyOrder.dispatchInfo.dispatchedAt
-      }
+        dispatchedAt: pharmacyOrder.dispatchInfo.dispatchedAt,
+      },
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: error.message
+      message: error.message,
     });
   }
 };
@@ -283,30 +341,32 @@ const submitConsultation = async (req, res) => {
       });
     }
 
-     if (Array.isArray(prescriptionLines) && prescriptionLines.length > 0) {
-       patient.pharmacy = {
-         ...(patient.pharmacy || {}),
-         prescribedDrugs: prescriptionLines.map(line => line.name),
-         dispenseStatus: "Pending",
-       };
-       if (nextStatus !== "Laboratory") {
-         nextStatus = "Pharmacy";
-       }
+    if (Array.isArray(prescriptionLines) && prescriptionLines.length > 0) {
+      patient.pharmacy = {
+        ...(patient.pharmacy || {}),
+        prescribedDrugs: prescriptionLines.map((line) => line.name),
+        dispenseStatus: "Pending",
+      };
+      if (nextStatus !== "Laboratory") {
+        nextStatus = "Pharmacy";
+      }
 
-       await PharmacyOrder.create({
-         orderId: `RX-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-         patientCardId: patient.cardId,
-         patientName: patient.patientName,
-         age: patient.age,
-         doctorName: req.user?.name || "Unknown Physician",
-         timestamp: new Date().toISOString(),
-         medications: prescriptionLines,
-         linkedPatient: patient._id,
-       });
-     }
+      await PharmacyOrder.create({
+        orderId: `RX-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+        patientCardId: patient.cardId,
+        patientName: patient.patientName,
+        age: patient.age,
+        doctorName: req.user?.name || "Unknown Physician",
+        timestamp: new Date().toISOString(),
+        medications: prescriptionLines,
+        linkedPatient: patient._id,
+      });
+    }
 
     patient.currentStatus = nextStatus;
     await patient.save();
+
+    await logAudit(req, "UPDATE", "Consultation", `Consultation completed for ${patient.patientName} (${patient.cardId}) by ${req.user?.name}`, patient._id);
 
     res.status(200).json({ success: true, data: patient });
   } catch (error) {
@@ -314,4 +374,12 @@ const submitConsultation = async (req, res) => {
   }
 };
 
-module.exports = { getDoctorCases, submitConsultation, getCompletedEncountersCount, getDoctorPatient, getDoctorsByDepartment, dispatchToDoctor, getAllDepartments };
+module.exports = {
+  getDoctorCases,
+  submitConsultation,
+  getCompletedEncountersCount,
+  getDoctorPatient,
+  getDoctorsByDepartment,
+  dispatchToDoctor,
+  getAllDepartments,
+};

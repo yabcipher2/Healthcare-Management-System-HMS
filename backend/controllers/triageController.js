@@ -1,4 +1,24 @@
 const PatientRecord = require("../models/PatientRecord");
+const AuditLog = require("../models/AuditLog");
+
+const logAudit = async (req, action, module, details, targetId = "", targetType = "PatientRecord") => {
+  try {
+    await AuditLog.create({
+      action,
+      module,
+      userId: req.user?._id || req.user?.id || "unknown",
+      userName: req.user?.name || "Unknown",
+      userRole: req.user?.role || "unknown",
+      department: req.user?.dept || "",
+      targetId: targetId || "",
+      targetType,
+      details: details || "",
+      ipAddress: req.ip || "",
+    });
+  } catch (err) {
+    console.error("Audit log failed:", err.message);
+  }
+};
 
 const getQueue = async (req, res) => {
   try {
@@ -23,30 +43,17 @@ const getRedCriticalsToday = async (req, res) => {
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
-    console.log(`[getRedCriticalsToday] Querying from ${today} to ${tomorrow}`);
-
     const count = await PatientRecord.countDocuments({
       $or: [
-        {
-          "triage.triageCategory": { $regex: /Red/i }
-        },
-        {
-          triageCategory: { $regex: /Red/i }
-        }
+        { "triage.triageCategory": { $regex: /Red/i } },
+        { triageCategory: { $regex: /Red/i } },
       ],
       updatedAt: { $gte: today, $lt: tomorrow },
     });
 
-    console.log(`[getRedCriticalsToday] Found ${count} red criticals`);
-
     res.status(200).json({ success: true, count });
   } catch (error) {
-    console.error("[getRedCriticalsToday] Error:", error);
-    res.status(500).json({ 
-      success: false, 
-      message: error.message,
-      details: process.env.NODE_ENV === "development" ? error.stack : undefined
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
@@ -57,30 +64,17 @@ const getTotalAssessedToday = async (req, res) => {
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
-    console.log(`[getTotalAssessedToday] Querying from ${today} to ${tomorrow}`);
-
     const count = await PatientRecord.countDocuments({
       $or: [
-        {
-          "triage.triageCategory": { $ne: null }
-        },
-        {
-          triageCategory: { $ne: null }
-        }
+        { "triage.triageCategory": { $ne: null } },
+        { triageCategory: { $ne: null } },
       ],
       updatedAt: { $gte: today, $lt: tomorrow },
     });
 
-    console.log(`[getTotalAssessedToday] Found ${count} assessed patients`);
-
     res.status(200).json({ success: true, count });
   } catch (error) {
-    console.error("[getTotalAssessedToday] Error:", error);
-    res.status(500).json({ 
-      success: false, 
-      message: error.message,
-      details: process.env.NODE_ENV === "development" ? error.stack : undefined
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
@@ -124,6 +118,8 @@ const updateTriage = async (req, res) => {
     patient.currentStatus = "Consultation";
     await patient.save();
 
+    await logAudit(req, "UPDATE", "Triage", `Triage assessed for ${patient.patientName} (${patient.cardId}): ${triageCategory}`, patient._id);
+
     res.status(200).json({ success: true, data: patient });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
@@ -150,13 +146,19 @@ const dispatchTriagePatient = async (req, res) => {
       randomBloodSugar,
       secondaryUrgencyNotes,
       triageCategory,
-      department,
       doctorId,
-      dispatchedBy,
-      dispatchedAt,
+      department,
     } = req.body;
 
-    // Update vitals/triage data
+    // Validate doctorId pattern prior to mutation if your schema expects ObjectId types
+    let finalizedDoctorId = doctorId;
+    if (doctorId && !/^[0-9a-fA-F]{24}$/.test(doctorId.toString())) {
+      console.warn(
+        `[dispatchTriagePatient] Provided doctorId "${doctorId}" is not a valid hex string. Handling carefully.`,
+      );
+      finalizedDoctorId = null;
+    }
+
     patient.triage = {
       bloodPressure: `${bpSystolic || ""}/${bpDiastolic || ""}`.trim(),
       heartRate: heartRate || patient.triage?.heartRate,
@@ -172,20 +174,28 @@ const dispatchTriagePatient = async (req, res) => {
         secondaryUrgencyNotes || patient.triage?.secondaryUrgencyNotes,
     };
 
-    // Set the patient to consultation status and assign to the selected doctor
     patient.currentStatus = "Consultation";
-    // Ensure consultation object exists
+    patient.triageDepartment = department || "";
     if (!patient.consultation) {
       patient.consultation = {};
     }
-    patient.consultation.assignedDoctor = doctorId;
+
+    patient.consultation.assignedDoctor = finalizedDoctorId;
+    patient.consultation.dispatchedDepartment = department || "";
 
     await patient.save();
-
+    await logAudit(req, "UPDATE", "Triage", `Dispatched ${patient.patientName} (${patient.cardId}) to doctor consultation`, patient._id);
     res.status(200).json({ success: true, data: patient });
   } catch (error) {
+    console.error("[dispatchTriagePatient] Error:", error);
     res.status(400).json({ success: false, message: error.message });
   }
 };
 
-module.exports = { getQueue, getRedCriticalsToday, getTotalAssessedToday, updateTriage, dispatchTriagePatient };
+module.exports = {
+  getQueue,
+  getRedCriticalsToday,
+  getTotalAssessedToday,
+  updateTriage,
+  dispatchTriagePatient,
+};

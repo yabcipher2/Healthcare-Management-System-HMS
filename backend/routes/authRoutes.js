@@ -3,6 +3,7 @@ const router = express.Router();
 const jwt = require("jsonwebtoken");
 const { protectRoute } = require("../middleware/authMiddleware");
 const User = require("../models/User");
+const StaffProfile = require("../models/StaffProfile");
 
 const getDashboardRoute = (role) => {
   const normalizedRole = (role || "").toLowerCase();
@@ -99,6 +100,15 @@ router.post("/login", async (req, res) => {
         expiresIn: "1d",
       });
       const dashboardRoute = getDashboardRoute(user.role);
+      let dept = user.dept;
+      if (!dept && user.staffId) {
+        const profile = await StaffProfile.findOne({ staffId: user.staffId });
+        dept = profile?.dept || "";
+        if (dept) {
+          user.dept = dept;
+          await user.save();
+        }
+      }
       res.json({
         success: true,
         token,
@@ -108,6 +118,7 @@ router.post("/login", async (req, res) => {
           name: user.name,
           email: user.email,
           role: user.role,
+          dept,
         },
       });
     } else {

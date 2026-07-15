@@ -1,6 +1,26 @@
 const PharmacyOrder = require("../models/PharmacyOrder");
 const MedicineStock = require("../models/MedicineStock");
 const PatientRecord = require("../models/PatientRecord");
+const AuditLog = require("../models/AuditLog");
+
+const logAudit = async (req, action, module, details, targetId = "") => {
+  try {
+    await AuditLog.create({
+      action,
+      module,
+      userId: req.user?._id || req.user?.id || "unknown",
+      userName: req.user?.name || "Unknown",
+      userRole: req.user?.role || "unknown",
+      department: req.user?.dept || "",
+      targetId,
+      targetType: "PharmacyOrder",
+      details,
+      ipAddress: req.ip || "",
+    });
+  } catch (err) {
+    console.error("Audit log failed:", err.message);
+  }
+};
 
 const getInventory = async (req, res) => {
   try {
@@ -151,6 +171,8 @@ const createPrescriptionOrder = async (req, res) => {
       });
     }
 
+    await logAudit(req, "CREATE", "Pharmacy", `Prescription order ${order.orderId} created for order ${order.patientName}`, order._id);
+
     res.status(201).json({ success: true, data: order });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
@@ -166,7 +188,7 @@ const markPrescriptionDispensed = async (req, res) => {
         dispenseStatus: "Dispensed",
         updatedAt: new Date(),
       },
-      { new: true, runValidators: true },
+      { returnDocument: "after", runValidators: true },
     );
 
     if (!order) {
@@ -181,6 +203,8 @@ const markPrescriptionDispensed = async (req, res) => {
         currentStatus: "Billing",
       });
     }
+
+    await logAudit(req, "UPDATE", "Pharmacy", `Prescription ${order.orderId} dispensed to ${order.patientName}`, order._id);
 
     res.status(200).json({ success: true, data: order });
   } catch (error) {

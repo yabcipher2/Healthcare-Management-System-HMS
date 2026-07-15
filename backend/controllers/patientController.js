@@ -1,4 +1,24 @@
 const PatientRecord = require("../models/PatientRecord");
+const AuditLog = require("../models/AuditLog");
+
+const logAudit = async (req, action, module, details, targetId = "", targetType = "PatientRecord") => {
+  try {
+    await AuditLog.create({
+      action,
+      module,
+      userId: req.user?._id || req.user?.id || "unknown",
+      userName: req.user?.name || "Unknown",
+      userRole: req.user?.role || "unknown",
+      department: req.user?.dept || "",
+      targetId: targetId || "",
+      targetType,
+      details: details || "",
+      ipAddress: req.ip || "",
+    });
+  } catch (err) {
+    console.error("Audit log failed:", err.message);
+  }
+};
 
 const normalizePatientName = (firstName, middleName, lastName) => {
   return [firstName, middleName, lastName].filter(Boolean).join(" ").trim();
@@ -72,6 +92,8 @@ const registerPatient = async (req, res) => {
       currentStatus: "Registration",
     });
 
+    await logAudit(req, "CREATE", "Patient", `Registered patient ${patientName} (${resolvedCardId})`, newRecord._id);
+
     res.status(201).json({ success: true, data: newRecord });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
@@ -135,13 +157,14 @@ const modifyWorkflow = async (req, res) => {
     const updatedRecord = await PatientRecord.findByIdAndUpdate(
       req.params.id,
       updatePayload,
-      { new: true, runValidators: true },
+      { returnDocument: "after", runValidators: true },
     );
     if (!updatedRecord) {
       return res
         .status(404)
         .json({ success: false, message: "Record not found." });
     }
+    await logAudit(req, "UPDATE", "Patient", `Updated patient record ${updatedRecord.cardId}`, updatedRecord._id);
     res.status(200).json({ success: true, data: updatedRecord });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });

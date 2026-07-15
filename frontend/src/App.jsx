@@ -11,6 +11,7 @@ import Landingpage from "./pages/Landingpage";
 import WardPage from "./pages/WardPage";
 import NursePage from "./pages/NursePage";
 import StoreManagementPage from "./pages/StoreManagementPage";
+import { HospitalStatusProvider } from "./context/HospitalStatusContext";
 
 export default function App() {
   // 1. FORCED ROUTING CONTROLLER
@@ -104,9 +105,10 @@ export default function App() {
   const activeView = validPages.includes(currentPage) ? currentPage : "home";
 
   return (
-    <>
-      {/* 3. RECEPTION DASHBOARD NODE */}
-      {activeView === "reception" && <ReceptionPage onLogout={handleLogout} />}
+    <HospitalStatusProvider>
+      <>
+        {/* 3. RECEPTION DASHBOARD NODE */}
+        {activeView === "reception" && <ReceptionPage onLogout={handleLogout} />}
 
       {/* 4. TRIAGE CLINICAL STATION SCREEN */}
       {activeView === "triage" && <TriagePage onLogout={handleLogout} />}
@@ -141,6 +143,7 @@ export default function App() {
           isMaintenanceMode={isMaintenanceMode}
           setIsMaintenanceMode={setIsMaintenanceMode}
           user={user}
+          navigateTo={setCurrentPage}
         />
       )}
 
@@ -157,13 +160,14 @@ export default function App() {
         <DemoPage onBackClick={() => setCurrentPage("home")} />
       )}
 
-      {/* 9. LOGIN GATEWAY ENTRY */}
-      {activeView === "login" && (
-        <Login
-          onBackClick={() => setCurrentPage("home")}
-          onLoginSuccess={handleLoginSuccess}
-        />
-      )}
-    </>
+        {/* 9. LOGIN GATEWAY ENTRY */}
+        {activeView === "login" && (
+          <Login
+            onBackClick={() => setCurrentPage("home")}
+            onLoginSuccess={handleLoginSuccess}
+          />
+        )}
+      </>
+    </HospitalStatusProvider>
   );
 }

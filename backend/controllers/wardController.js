@@ -1,4 +1,24 @@
 const Bed = require("../models/Bed");
+const AuditLog = require("../models/AuditLog");
+
+const logAudit = async (req, action, module, details, targetId = "") => {
+  try {
+    await AuditLog.create({
+      action,
+      module,
+      userId: req.user?._id || req.user?.id || "unknown",
+      userName: req.user?.name || "Unknown",
+      userRole: req.user?.role || "unknown",
+      department: req.user?.dept || "",
+      targetId,
+      targetType: "Bed",
+      details,
+      ipAddress: req.ip || "",
+    });
+  } catch (err) {
+    console.error("Audit log failed:", err.message);
+  }
+};
 
 const getBeds = async (req, res) => {
   try {
@@ -22,8 +42,9 @@ const getBeds = async (req, res) => {
 
 const updateBed = async (req, res) => {
   try {
-    const bed = await Bed.findOneAndUpdate({ bedId: req.params.bedId }, req.body, { new: true, runValidators: true });
+    const bed = await Bed.findOneAndUpdate({ bedId: req.params.bedId }, req.body, { returnDocument: "after", runValidators: true });
     if (!bed) return res.status(404).json({ success: false, message: "Bed not found." });
+    await logAudit(req, "UPDATE", "Ward", `Bed ${bed.bedId} updated (patient: ${bed.patientName || "none"}, status: ${bed.status})`, bed._id);
     res.status(200).json({ success: true, data: bed });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
@@ -35,9 +56,10 @@ const dischargeBed = async (req, res) => {
     const bed = await Bed.findOneAndUpdate(
       { bedId: req.params.bedId },
       { status: "Available", patientName: "", admissionTime: "", attendingDoctor: "", severity: "", patientCardId: "" },
-      { new: true, runValidators: true }
+      { returnDocument: "after", runValidators: true }
     );
     if (!bed) return res.status(404).json({ success: false, message: "Bed not found." });
+    await logAudit(req, "UPDATE", "Ward", `Discharged patient from bed ${bed.bedId}`, bed._id);
     res.status(200).json({ success: true, data: bed });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });

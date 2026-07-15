@@ -25,7 +25,7 @@ const updateStock = async (req, res) => {
     const item = await StoreItem.findOneAndUpdate(
       { itemId: req.params.itemId },
       { stock, status },
-      { new: true, runValidators: true }
+      { returnDocument: "after", runValidators: true }
     );
     if (!item) return res.status(404).json({ success: false, message: "Item not found." });
     res.status(200).json({ success: true, data: item });

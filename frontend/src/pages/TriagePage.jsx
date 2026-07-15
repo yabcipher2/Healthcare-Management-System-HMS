@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   Activity,
   Heart,
@@ -9,25 +9,28 @@ import {
   CheckCircle,
   Clock,
   LayoutDashboard,
-  FileText,
   Search,
   ChevronRight,
-  ArrowUpRight,
-  Filter,
   ShieldAlert,
-  Settings,
   LogOut,
+  ClipboardList,
 } from "lucide-react";
+import { fetchAuditLogs, fetchAuditAlertsCount } from "../utils/audit";
 
-export default function TriagePage({ onLogout }) {
+export default function TriagePage() {
   const [activeTab, setActiveTab] = useState("dashboard");
   const [selectedPatient, setSelectedPatient] = useState(null);
+  const [auditAlertsCount, setAuditAlertsCount] = useState(0);
+  const [auditLogs, setAuditLogs] = useState([]);
+  const [auditLogsLoading, setAuditLogsLoading] = useState(false);
+  const [auditLogsError, setAuditLogsError] = useState("");
+
   const [searchQuery, setSearchQuery] = useState("");
-  const [triageFilter, setTriageFilter] = useState("All");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [redCriticalsToday, setRedCriticalsToday] = useState(0);
   const [totalAssessedToday, setTotalAssessedToday] = useState(0);
+
   const [vitals, setVitals] = useState({
     bpSystolic: "",
     bpDiastolic: "",
@@ -37,22 +40,22 @@ export default function TriagePage({ onLogout }) {
     respiratoryRate: "",
     weight: "",
     randomBloodSugar: "",
-    triageCategory: "",
+    triageCategory: "Green (Non-Urgent)",
     secondaryUrgencyNotes: "",
   });
 
-   // Dispatch state
-   const [dispatching, setDispatching] = useState(false);
-   const [dispatchStatus, setDispatchStatus] = useState(null); // null, 'success', 'error'
-   const [selectedDepartment, setSelectedDepartment] = useState("");
-   const [doctorsByDepartment, setDoctorsByDepartment] = useState([]);
-   const [selectedDoctor, setSelectedDoctor] = useState("");
-   const [departments, setDepartments] = useState([]);
-   const [departmentsLoading, setDepartmentsLoading] = useState(false);
-   const [departmentsError, setDepartmentsError] = useState("");
-  const hospitalLogo = "/mesra icon.png";
+  // Dispatch state
+  const [dispatching, setDispatching] = useState(false);
+  const [dispatchStatus, setDispatchStatus] = useState(null); // null, 'success', 'error'
+  const [selectedDepartment, setSelectedDepartment] = useState("");
+  const [doctorsByDepartment, setDoctorsByDepartment] = useState([]);
+  const [selectedDoctor, setSelectedDoctor] = useState("");
+  const [departments, setDepartments] = useState([]);
+  const [departmentsLoading, setDepartmentsLoading] = useState(false);
+  const [departmentsError, setDepartmentsError] = useState("");
+  const [doctorsLoading, setDoctorsLoading] = useState(false); // FIXED: Added missing hook reference
 
-  // API Configuration
+  const hospitalLogo = "/mesra icon.png";
   const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
   const token = localStorage.getItem("token");
 
@@ -66,7 +69,40 @@ export default function TriagePage({ onLogout }) {
   // Waiting Queue State
   const [queue, setQueue] = useState([]);
 
-  // Fetch queue from backend on mount
+  const loadAuditAlertsCount = useCallback(async () => {
+    try {
+      const data = await fetchAuditAlertsCount();
+      setAuditAlertsCount(data);
+    } catch {
+      // Silently fail audit count fetch
+    }
+  }, []);
+
+  const loadAuditLogs = useCallback(async () => {
+    setAuditLogsLoading(true);
+    setAuditLogsError("");
+    try {
+      const result = await fetchAuditLogs({ page: 1, limit: 20 });
+      setAuditLogs(result.data || []);
+    } catch (err) {
+      setAuditLogsError(err.message || "Failed to load audit logs");
+    } finally {
+      // FIXED: Removed illegal colon syntax variant
+      setAuditLogsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadAuditAlertsCount();
+    loadAuditLogs();
+  }, [loadAuditAlertsCount, loadAuditLogs]);
+
+  useEffect(() => {
+    const interval = setInterval(() => loadAuditAlertsCount(), 30000);
+    return () => clearInterval(interval);
+  }, [loadAuditAlertsCount]);
+
+  // Fetch queue from backend
   useEffect(() => {
     const fetchQueue = async () => {
       try {
@@ -88,87 +124,56 @@ export default function TriagePage({ onLogout }) {
     fetchQueue();
   }, [API_URL]);
 
-   // Fetch triage statistics from backend on mount
-   useEffect(() => {
-     const fetchStatistics = async () => {
-       try {
-         // Fetch red criticals today
-         const redCriticalsResponse = await fetch(`${API_URL}/api/triage/red-criticals-today`, {
-           headers: getAuthHeaders(),
-         });
-         if (!redCriticalsResponse.ok) throw new Error("Failed to fetch red criticals today");
-         const redCriticalsData = await redCriticalsResponse.json();
-         setRedCriticalsToday(redCriticalsData.count || 0);
+  // Fetch statistics
+  useEffect(() => {
+    const fetchStatistics = async () => {
+      try {
+        const redCriticalsResponse = await fetch(
+          `${API_URL}/api/triage/red-criticals-today`,
+          {
+            headers: getAuthHeaders(),
+          },
+        );
+        if (redCriticalsResponse.ok) {
+          const redCriticalsData = await redCriticalsResponse.json();
+          setRedCriticalsToday(redCriticalsData.count || 0);
+        }
 
-         // Fetch total assessed today
-         const totalAssessedResponse = await fetch(`${API_URL}/api/triage/total-assessed-today`, {
-           headers: getAuthHeaders(),
-         });
-         if (!totalAssessedResponse.ok) throw new Error("Failed to fetch total assessed today");
-         const totalAssessedData = await totalAssessedResponse.json();
-         setTotalAssessedToday(totalAssessedData.count || 0);
-       } catch (err) {
-         console.error("Error fetching triage statistics:", err);
-         // Don't set error state here to avoid overwhelming the user with error messages
-         // Just keep the default values (0)
-       }
-     };
-     fetchStatistics();
-   }, [API_URL]);
+        const totalAssessedResponse = await fetch(
+          `${API_URL}/api/triage/total-assessed-today`,
+          {
+            headers: getAuthHeaders(),
+          },
+        );
+        if (totalAssessedResponse.ok) {
+          const totalAssessedData = await totalAssessedResponse.json();
+          setTotalAssessedToday(totalAssessedData.count || 0);
+        }
+      } catch (err) {
+        console.error("Error fetching triage statistics:", err);
+      }
+    };
+    fetchStatistics();
+  }, [API_URL]);
 
-   // Fetch departments from backend on mount
-   useEffect(() => {
-     const fetchDepartments = async () => {
-       try {
-         setDepartmentsLoading(true);
-         const response = await fetch(`${API_URL}/api/doctor/departments`, {
-           headers: getAuthHeaders(),
-         });
-         if (!response.ok) throw new Error("Failed to fetch departments");
-         const data = await response.json();
-         if (data.success) {
-           setDepartments(data.data || []);
-         } else {
-           setDepartmentsError(data.message || "Failed to fetch departments");
-         }
-       } catch (err) {
-         console.error("Error fetching departments:", err);
-         setDepartmentsError(err.message);
-       } finally {
-         setDepartmentsLoading(false);
-       }
-     };
-
-     fetchDepartments();
-   }, [API_URL]);
-
-  // Fetch departments from backend on mount
+  // Fetch departments
   useEffect(() => {
     const fetchDepartments = async () => {
       try {
         setDepartmentsLoading(true);
-        const storedToken = localStorage.getItem("token");
-        const response = await fetch(
-          `${API_URL}/api/doctor/departments`,
-          {
-            headers: {
-              Authorization: `Bearer ${storedToken}`,
-            },
-          },
-        );
-        if (!response.ok) {
-          throw new Error("Failed to fetch departments");
-        }
+        const response = await fetch(`${API_URL}/api/doctor/departments`, {
+          headers: getAuthHeaders(),
+        });
+        if (!response.ok) throw new Error("Failed to fetch departments");
         const data = await response.json();
         if (data.success) {
           setDepartments(data.data || []);
-          setDepartmentsError("");
         } else {
-          setDepartmentsError(data.message || "Failed to load departments");
+          setDepartmentsError(data.message || "Failed to fetch departments");
         }
       } catch (err) {
         console.error("Error fetching departments:", err);
-        setDepartmentsError("Failed to load departments");
+        setDepartmentsError(err.message);
       } finally {
         setDepartmentsLoading(false);
       }
@@ -176,55 +181,48 @@ export default function TriagePage({ onLogout }) {
     fetchDepartments();
   }, [API_URL]);
 
-   // Fetch doctors when department changes
-   useEffect(() => {
-     if (!selectedDepartment) {
-       setDoctorsByDepartment([]);
-       setSelectedDoctor("");
-       return;
-     }
+  // Fetch doctors when department changes
+  useEffect(() => {
+    if (!selectedDepartment) {
+      setDoctorsByDepartment([]);
+      setSelectedDoctor("");
+      return;
+    }
 
-     const fetchDoctorsByDepartment = async () => {
-       try {
-         setDoctorsLoading(true);
-         const storedToken = localStorage.getItem("token");
-         const response = await fetch(
-           `${API_URL}/api/doctor/doctors/department/${selectedDepartment}`,
-           {
-             headers: {
-               Authorization: `Bearer ${storedToken}`,
-             },
-           },
-         );
-         if (!response.ok) {
-           const errorData = await response.json();
-           console.error("Failed to fetch doctors by department:", errorData);
-           setDoctorsByDepartment([]);
-           setSelectedDoctor("");
-           return;
-         }
-         const data = await response.json();
-         if (data.success) {
-           setDoctorsByDepartment(data.data || []);
-           if (data.data && data.data.length > 0) {
-             setSelectedDoctor(data.data[0]._id);
-           } else {
-             setSelectedDoctor("");
-           }
-         }
-        } catch (err) {
-         console.error("Error fetching doctors by department:", err);
-         setDoctorsByDepartment([]);
-         setSelectedDoctor("");
-       } finally {
-         setDoctorsLoading(false);
-       }
-     };
+    const fetchDoctorsByDepartment = async () => {
+      try {
+        setDoctorsLoading(true);
+        const response = await fetch(
+          `${API_URL}/api/doctor/doctors/department/${selectedDepartment}`,
+          { headers: getAuthHeaders() },
+        );
+        if (!response.ok) {
+          setDoctorsByDepartment([]);
+          setSelectedDoctor("");
+          return;
+        }
+        const data = await response.json();
+        if (data.success) {
+          setDoctorsByDepartment(data.data || []);
+          if (data.data && data.data.length > 0) {
+            setSelectedDoctor(data.data[0]._id);
+          } else {
+            setSelectedDoctor("");
+          }
+        }
+      } catch (err) {
+        console.error("Error fetching doctors by department:", err);
+        setDoctorsByDepartment([]);
+        setSelectedDoctor("");
+      } finally {
+        setDoctorsLoading(false);
+      }
+    };
 
-     fetchDoctorsByDepartment();
-   }, [selectedDepartment, API_URL]);
+    fetchDoctorsByDepartment();
+  }, [selectedDepartment, API_URL]);
 
-  // Dynamic Triage Color Calculator based on Vitals Metrics
+  // Dynamic Triage Color Calculator
   useEffect(() => {
     const sys = parseInt(vitals.bpSystolic);
     const pulse = parseInt(vitals.heartRate);
@@ -255,11 +253,9 @@ export default function TriagePage({ onLogout }) {
 
   const handleTriageSubmit = (e) => {
     e.preventDefault();
-    // Vitals verified, now swap to routing dispatch panel interface
     setDispatching(true);
   };
 
-  // Handle Confirm Dispatch
   const handleConfirmDispatch = async () => {
     if (!selectedDepartment || !selectedDoctor) {
       alert("Please select both department and doctor.");
@@ -267,15 +263,11 @@ export default function TriagePage({ onLogout }) {
     }
 
     try {
-      const storedToken = localStorage.getItem("token");
       const response = await fetch(
         `${API_URL}/api/triage/${selectedPatient._id}/dispatch`,
         {
           method: "PUT",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${storedToken}`,
-          },
+          headers: getAuthHeaders(true),
           body: JSON.stringify({
             ...vitals,
             department: selectedDepartment,
@@ -291,45 +283,38 @@ export default function TriagePage({ onLogout }) {
         throw new Error(errorData.message || "Failed to dispatch patient");
       }
 
-      const result = await response.json();
-      if (!result.success) {
-        throw new Error(result.message || "Failed to dispatch patient");
-      }
-
       setDispatchStatus("success");
+      setQueue((prev) => prev.filter((p) => p._id !== selectedPatient._id));
+      setSelectedPatient(null);
+      setVitals({
+        bpSystolic: "",
+        bpDiastolic: "",
+        heartRate: "",
+        temperature: "",
+        spo2: "",
+        respiratoryRate: "",
+        weight: "",
+        randomBloodSugar: "",
+        triageCategory: "Green (Non-Urgent)",
+        secondaryUrgencyNotes: "",
+      });
+      setSelectedDepartment("");
+      setDoctorsByDepartment([]);
+      setSelectedDoctor("");
+      setDispatching(false);
 
-       // Remove from queue and reset state
-       setQueue((prev) => prev.filter((p) => p._id !== selectedPatient._id));
-       setSelectedPatient(null);
-       setVitals({
-         bpSystolic: "",
-         bpDiastolic: "",
-         heartRate: "",
-         temperature: "",
-         spo2: "",
-         respiratoryRate: "",
-         weight: "",
-         randomBloodSugar: "",
-         triageCategory: "",
-         secondaryUrgencyNotes: "",
-       });
-        setSelectedDepartment("");
-        setDoctorsByDepartment([]);
-        setSelectedDoctor("");
-       setDispatching(false);
-
-      // Show success brief feedback message then clear
-      setTimeout(() => {
-        setDispatchStatus(null);
-      }, 3000);
-
-      // Return to live queue stream screen
-      setActiveTab("waitingList");
+      setTimeout(() => setDispatchStatus(null), 3000);
+      setActiveTab("dashboard");
     } catch (err) {
       setDispatchStatus("error");
       alert(`Error: ${err.message}`);
-      console.error("Error dispatching patient:", err);
     }
+  };
+
+  const handleExit = () => {
+    localStorage.clear();
+    sessionStorage.clear();
+    window.location.href = "/login";
   };
 
   return (
@@ -364,6 +349,7 @@ export default function TriagePage({ onLogout }) {
             >
               <LayoutDashboard size={16} /> Dashboard Stats
             </button>
+
             <button
               type="button"
               onClick={() => {
@@ -372,7 +358,18 @@ export default function TriagePage({ onLogout }) {
               }}
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition ${activeTab === "waitingList" ? "bg-blue-50 text-blue-600" : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"}`}
             >
-              <Users size={16} /> Intake Waiting Queue ({queue.length})
+              <ClipboardList size={16} /> Patient Queue ({queue.length})
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab("triageAudit");
+                loadAuditLogs();
+              }}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition ${activeTab === "triageAudit" ? "bg-rose-50 text-rose-600" : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"}`}
+            >
+              <ShieldAlert size={16} /> Audit Activity ({auditAlertsCount})
             </button>
           </nav>
         </div>
@@ -384,11 +381,7 @@ export default function TriagePage({ onLogout }) {
           </div>
           <button
             type="button"
-            onClick={() => {
-              localStorage.clear();
-              sessionStorage.clear();
-              window.location.href = "/login";
-            }}
+            onClick={handleExit}
             className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-900 hover:bg-rose-950/40 border border-slate-800 hover:border-rose-900 text-slate-400 hover:text-rose-400 text-xs font-bold uppercase tracking-wider rounded-xl transition-all"
           >
             <LogOut size={14} /> Exit Platform
@@ -405,14 +398,21 @@ export default function TriagePage({ onLogout }) {
               (selectedPatient
                 ? "Vital Entry Validation"
                 : "Incoming Triage Registry")}
+            {activeTab === "triageAudit" && "Security Integrity Logs"}
           </h1>
           <div className="flex items-center gap-2 font-mono text-xs text-slate-500 bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200/40">
-            <Clock size={12} className="text-blue-600" /> Active System Time:{" "}
-            <span className="font-bold text-slate-800">10:42 AM</span>
+            <Clock size={12} className="text-blue-600" /> System Status:{" "}
+            <span className="font-bold text-emerald-600">Live</span>
           </div>
         </header>
 
         <main className="flex-1 p-8 overflow-y-auto">
+          {error && (
+            <div className="p-4 mb-6 bg-rose-50 text-rose-600 border border-rose-200 rounded-xl text-xs font-bold">
+              {error}
+            </div>
+          )}
+
           {/* TRIAGE DASHBOARD VIEW */}
           {activeTab === "dashboard" && (
             <div className="space-y-8 animate-fadeIn">
@@ -462,7 +462,6 @@ export default function TriagePage({ onLogout }) {
                 ))}
               </div>
 
-              {/* Triage System Guidance Warning block */}
               <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
                 <h3 className="font-bold text-sm text-slate-900 uppercase tracking-wider mb-4 flex items-center gap-2">
                   <AlertTriangle className="text-amber-500" size={16} />{" "}
@@ -513,7 +512,7 @@ export default function TriagePage({ onLogout }) {
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Filter live queue..."
+                    placeholder="Filter live queue by name or Card ID..."
                     className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
@@ -536,10 +535,10 @@ export default function TriagePage({ onLogout }) {
                       .filter(
                         (p) =>
                           p.patientName
-                            .toLowerCase()
+                            ?.toLowerCase()
                             .includes(searchQuery.toLowerCase()) ||
                           p.cardId
-                            .toLowerCase()
+                            ?.toLowerCase()
                             .includes(searchQuery.toLowerCase()),
                       )
                       .map((p) => (
@@ -557,7 +556,7 @@ export default function TriagePage({ onLogout }) {
                             {p.gender} ({p.age} Yrs)
                           </td>
                           <td className="p-4 px-6 font-mono text-slate-500">
-                            {p.registrationTime}
+                            {p.registrationTime || "Just now"}
                           </td>
                           <td className="p-4 px-6 max-w-xs truncate text-slate-500">
                             {p.chiefComplaint}
@@ -589,7 +588,7 @@ export default function TriagePage({ onLogout }) {
             </div>
           )}
 
-          {/* VITALS ENTRY SCREEN */}
+          {/* VITALS ENTRY SCREEN & DISPATCH ROUTING INTERFACE */}
           {activeTab === "waitingList" && selectedPatient && (
             <div className="max-w-4xl mx-auto bg-white border border-slate-200 rounded-3xl shadow-xl overflow-hidden animate-fadeIn text-slate-800">
               <div className="p-6 bg-slate-900 text-white flex justify-between items-center">
@@ -604,245 +603,297 @@ export default function TriagePage({ onLogout }) {
                   </p>
                 </div>
                 <span className="bg-blue-600 text-white text-xs font-mono font-bold px-3 py-1 rounded-lg">
-                  LIVE VITALS ACQUISITION
+                  {dispatching
+                    ? "DEPARTMENT DISPATCH ROUTING"
+                    : "LIVE VITALS ACQUISITION"}
                 </span>
               </div>
 
-              <form onSubmit={handleTriageSubmit} className="p-8 space-y-6">
-                <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900">
-                  <strong>Stated Complaint at Intake:</strong>{" "}
-                  {selectedPatient.chiefComplaint}
-                </div>
+              {!dispatching ? (
+                <form onSubmit={handleTriageSubmit} className="p-8 space-y-6">
+                  <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900">
+                    <strong>Stated Complaint at Intake:</strong>{" "}
+                    {selectedPatient.chiefComplaint}
+                  </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-5">
-                  <div className="space-y-1.5">
-                    <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider flex items-center gap-1">
-                      <Heart size={12} className="text-rose-500" /> SBP (mmHg)
-                    </label>
-                    <input
-                      type="number"
-                      name="bpSystolic"
-                      value={vitals.bpSystolic}
-                      onChange={handleVitalChange}
-                      placeholder="e.g. 120"
-                      required
-                      disabled={dispatching}
-                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
-                    />
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-5">
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider flex items-center gap-1">
+                        <Heart size={12} className="text-rose-500" /> SBP (mmHg)
+                      </label>
+                      <input
+                        type="number"
+                        name="bpSystolic"
+                        value={vitals.bpSystolic}
+                        onChange={handleVitalChange}
+                        placeholder="e.g. 120"
+                        required
+                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider flex items-center gap-1">
+                        <Heart size={12} className="text-rose-400" /> DBP (mmHg)
+                      </label>
+                      <input
+                        type="number"
+                        name="bpDiastolic"
+                        value={vitals.bpDiastolic}
+                        onChange={handleVitalChange}
+                        placeholder="e.g. 80"
+                        required
+                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider flex items-center gap-1">
+                        <Activity size={12} className="text-red-500" /> Pulse
+                        (BPM)
+                      </label>
+                      <input
+                        type="number"
+                        name="heartRate"
+                        value={vitals.heartRate}
+                        onChange={handleVitalChange}
+                        placeholder="e.g. 72"
+                        required
+                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider flex items-center gap-1">
+                        <Thermometer size={12} className="text-orange-500" />{" "}
+                        Temp (°C)
+                      </label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        name="temperature"
+                        value={vitals.temperature}
+                        onChange={handleVitalChange}
+                        placeholder="e.g. 36.7"
+                        required
+                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
                   </div>
-                  <div className="space-y-1.5">
-                    <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider flex items-center gap-1">
-                      <Heart size={12} className="text-rose-400" /> DBP (mmHg)
-                    </label>
-                    <input
-                      type="number"
-                      name="bpDiastolic"
-                      value={vitals.bpDiastolic}
-                      onChange={handleVitalChange}
-                      placeholder="e.g. 80"
-                      required
-                      disabled={dispatching}
-                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider flex items-center gap-1">
-                      <Activity size={12} className="text-red-500" /> Pulse
-                      (BPM)
-                    </label>
-                    <input
-                      type="number"
-                      name="heartRate"
-                      value={vitals.heartRate}
-                      onChange={handleVitalChange}
-                      placeholder="e.g. 72"
-                      required
-                      disabled={dispatching}
-                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider flex items-center gap-1">
-                      <Thermometer size={12} className="text-orange-500" /> Temp
-                      (°C)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      name="temperature"
-                      value={vitals.temperature}
-                      onChange={handleVitalChange}
-                      placeholder="e.g. 36.7"
-                      required
-                      disabled={dispatching}
-                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
-                    />
-                  </div>
-                </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-5">
-                  <div className="space-y-1.5">
-                    <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider flex items-center gap-1">
-                      <Wind size={12} className="text-cyan-500" /> SpO2 (%)
-                    </label>
-                    <input
-                      type="number"
-                      name="spo2"
-                      value={vitals.spo2}
-                      onChange={handleVitalChange}
-                      placeholder="e.g. 98"
-                      required
-                      disabled={dispatching}
-                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
-                    />
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-5">
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider flex items-center gap-1">
+                        <Wind size={12} className="text-cyan-500" /> SpO2 (%)
+                      </label>
+                      <input
+                        type="number"
+                        name="spo2"
+                        value={vitals.spo2}
+                        onChange={handleVitalChange}
+                        placeholder="e.g. 98"
+                        required
+                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider block">
+                        Resp Rate (cpm)
+                      </label>
+                      <input
+                        type="number"
+                        name="respiratoryRate"
+                        value={vitals.respiratoryRate}
+                        onChange={handleVitalChange}
+                        placeholder="e.g. 16"
+                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider block">
+                        Weight (kg)
+                      </label>
+                      <input
+                        type="number"
+                        name="weight"
+                        value={vitals.weight}
+                        onChange={handleVitalChange}
+                        placeholder="e.g. 70"
+                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider block">
+                        RBS (mg/dL)
+                      </label>
+                      <input
+                        type="number"
+                        name="randomBloodSugar"
+                        value={vitals.randomBloodSugar}
+                        onChange={handleVitalChange}
+                        placeholder="e.g. 110"
+                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
                   </div>
-                  <div className="space-y-1.5">
-                    <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider block">
-                      Resp Rate (cpm)
-                    </label>
-                    <input
-                      type="number"
-                      name="respiratoryRate"
-                      value={vitals.respiratoryRate}
-                      onChange={handleVitalChange}
-                      placeholder="e.g. 16"
-                      disabled={dispatching}
-                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider block">
-                      Weight (kg)
-                    </label>
-                    <input
-                      type="number"
-                      name="weight"
-                      value={vitals.weight}
-                      onChange={handleVitalChange}
-                      placeholder="e.g. 70"
-                      disabled={dispatching}
-                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider block">
-                      RBS (mg/dL)
-                    </label>
-                    <input
-                      type="number"
-                      name="randomBloodSugar"
-                      value={vitals.randomBloodSugar}
-                      onChange={handleVitalChange}
-                      placeholder="e.g. 110"
-                      disabled={dispatching}
-                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
-                    />
-                  </div>
-                </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 pt-2">
-                  <div className="space-y-1.5">
-                    <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider block">
-                      Calculated System Category (Auto)
-                    </label>
-                    <input
-                      type="text"
-                      name="triageCategory"
-                      value={vitals.triageCategory}
-                      readOnly
-                      className="w-full px-4 py-2.5 bg-slate-100 border border-slate-200 rounded-xl text-xs font-black text-blue-600 focus:outline-none font-mono"
+                  <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between">
+                    <div>
+                      <span className="text-[10px] uppercase text-slate-400 font-mono block font-bold">
+                        Calculated Classification Hierarchy
+                      </span>
+                      <span className="text-sm font-black tracking-wide text-slate-900">
+                        {vitals.triageCategory}
+                      </span>
+                    </div>
+                    <span
+                      className={`w-4 h-4 rounded-full ${vitals.triageCategory.includes("Red") ? "bg-rose-500 animate-pulse" : vitals.triageCategory.includes("Orange") ? "bg-amber-500" : vitals.triageCategory.includes("Yellow") ? "bg-yellow-400" : "bg-emerald-500"}`}
                     />
                   </div>
-                  <div className="space-y-1.5">
-                    <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider block">
-                      Secondary Clinical Urgency Notes
-                    </label>
-                    <input
-                      type="text"
-                      name="secondaryUrgencyNotes"
-                      value={vitals.secondaryUrgencyNotes}
-                      onChange={handleVitalChange}
-                      disabled={dispatching}
-                      placeholder="Visible physical symptoms, altered state, etc."
-                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
-                    />
-                  </div>
-                </div>
 
-                <div className="flex flex-col sm:flex-row gap-4 justify-between items-end pt-6 border-t border-slate-100">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedPatient(null);
-                      setDispatching(false);
-                    }}
-                    className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-bold uppercase tracking-wider rounded-xl transition-all"
-                  >
-                    Cancel Screening
-                  </button>
-
-                  {/* Dynamic Action Area: Trigger Vitals Submission or Confirm Dispatch Form */}
-                  {!dispatching ? (
+                  <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedPatient(null)}
+                      className="px-5 py-2.5 border border-slate-200 hover:bg-slate-50 text-xs font-bold uppercase tracking-wider rounded-xl transition"
+                    >
+                      Cancel Entry
+                    </button>
                     <button
                       type="submit"
-                      className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-black uppercase tracking-wider rounded-xl transition-all shadow-md"
+                      className="px-6 py-2.5 bg-blue-600 text-white text-xs font-black uppercase tracking-wider rounded-xl hover:bg-blue-700 transition shadow-md"
                     >
-                      Verify Vitals & Route
+                      Evaluate & Proceed
                     </button>
-                  ) : (
-                    <div className="flex flex-col sm:flex-row items-center gap-4 bg-slate-50 border border-slate-200 p-4 rounded-2xl w-full sm:w-auto">
-                       <div className="flex flex-col gap-2">
-                         <label className="text-[10px] font-black uppercase text-slate-400 font-mono">
-                           Department Assignment
-                         </label>
-                         <select
-                           value={selectedDepartment}
-                           onChange={(e) =>
-                             setSelectedDepartment(e.target.value)
-                           }
-                           className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:outline-none"
-                         >
-                           <option value="">Select Department</option>
-                           <option value="Pediatrics">Pediatrics</option>
-                           <option value="ENT (Otolaryngology)">ENT (Otolaryngology)</option>
-                           <option value="General Medicine">General Medicine</option>
-                           <option value="Surgery">Surgery</option>
-                           <option value="Obstetrics & Gynecology">Obstetrics & Gynecology</option>
-                           <option value="Orthopedics">Orthopedics</option>
-                         </select>
-                       </div>
+                  </div>
+                </form>
+              ) : (
+                /* REDIRECT PANEL INTERFACE ONCE VITALS SUBMITTED */
+                <div className="p-8 space-y-6">
+                  <div className="bg-blue-50/60 border border-blue-100 rounded-xl p-4 text-xs">
+                    <p className="font-bold text-blue-800 uppercase tracking-wide">
+                      Patient Parameters Locked
+                    </p>
+                    <p className="text-slate-600 mt-1">
+                      Classification: <strong>{vitals.triageCategory}</strong>.
+                      Choose clinical zone targets below.
+                    </p>
+                  </div>
 
-                      <div className="flex flex-col gap-2">
-                        <label className="text-[10px] font-black uppercase text-slate-400 font-mono">
-                          Physician Pool
-                        </label>
-                         <select
-                           disabled={doctorsByDepartment.length === 0}
-                           value={selectedDoctor || ""}
-                           onChange={(e) => setSelectedDoctor(e.target.value)}
-                           className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:outline-none disabled:opacity-50"
-                         >
-                           <option value="">Select Practitioner</option>
-                           {doctorsByDepartment.map((doc) => (
-                             <option key={doc._id} value={doc._id}>
-                               {doc.name}
-                             </option>
-                           ))}
-                         </select>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={handleConfirmDispatch}
-                        disabled={!selectedDepartment || !selectedDoctor}
-                        className="h-9 px-5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black uppercase tracking-wider rounded-xl transition-all shadow-md self-end disabled:opacity-50"
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                    <div className="space-y-2">
+                      <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider block">
+                        Target Department
+                      </label>
+                      <select
+                        value={selectedDepartment}
+                        onChange={(e) => setSelectedDepartment(e.target.value)}
+                        disabled={departmentsLoading}
+                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
                       >
-                        Confirm Dispatch
-                      </button>
+                        <option value="">
+                          -- Select Target Clinic / Unit --
+                        </option>
+                        {departments.map((dept, index) => (
+                          <option key={index} value={dept}>
+                            {dept}
+                          </option>
+                        ))}
+                      </select>
+                      {departmentsError && (
+                        <p className="text-[10px] text-rose-500">
+                          {departmentsError}
+                        </p>
+                      )}
                     </div>
-                  )}
+
+                    <div className="space-y-2">
+                      <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider block">
+                        Assign Consultant/Physician
+                      </label>
+                      <select
+                        value={selectedDoctor}
+                        onChange={(e) => setSelectedDoctor(e.target.value)}
+                        disabled={doctorsLoading || !selectedDepartment}
+                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        <option value="">-- Select Target Physician --</option>
+                        {doctorsByDepartment.map((doc) => (
+                          <option key={doc._id} value={doc._id}>
+                            {doc.name} (
+                            {doc.specialization || "General Practitioner"})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
+                    <button
+                      type="button"
+                      onClick={() => setDispatching(false)}
+                      className="px-5 py-2.5 border border-slate-200 hover:bg-slate-50 text-xs font-bold uppercase tracking-wider rounded-xl transition"
+                    >
+                      Back to Vitals
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleConfirmDispatch}
+                      className="px-6 py-2.5 bg-emerald-600 text-white text-xs font-black uppercase tracking-wider rounded-xl hover:bg-emerald-700 transition shadow-md"
+                    >
+                      Confirm & Dispatch Patient
+                    </button>
+                  </div>
                 </div>
-              </form>
+              )}
+            </div>
+          )}
+
+          {/* AUDIT LOGS TRACKER VIEW */}
+          {activeTab === "triageAudit" && (
+            <div className="space-y-6 animate-fadeIn">
+              <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6">
+                <h3 className="font-bold text-sm text-slate-900 uppercase tracking-wider mb-4 flex items-center gap-2">
+                  <ShieldAlert className="text-rose-500" size={16} /> Real-time
+                  Security & Modification Logs
+                </h3>
+                {auditLogsError && (
+                  <p className="text-xs text-rose-500 font-bold mb-4">
+                    {auditLogsError}
+                  </p>
+                )}
+                {auditLogsLoading ? (
+                  <p className="text-xs text-slate-400 font-mono">
+                    Streaming system access records...
+                  </p>
+                ) : (
+                  <div className="space-y-2 max-h-96 overflow-y-auto font-mono text-[11px] divide-y divide-slate-100">
+                    {auditLogs.map((log, index) => (
+                      <div
+                        key={log._id || index}
+                        className="py-2 flex justify-between items-start gap-4"
+                      >
+                        <div>
+                          <span className="text-slate-400">
+                            [{new Date(log.timestamp).toLocaleTimeString()}]
+                          </span>{" "}
+                          <span className="text-blue-600 font-bold">
+                            {log.action}
+                          </span>{" "}
+                          -{" "}
+                          <span className="text-slate-600">{log.details}</span>
+                        </div>
+                        <span className="text-slate-400 uppercase font-bold text-[9px] bg-slate-100 px-1.5 py-0.5 rounded">
+                          {log.operatorId || "System"}
+                        </span>
+                      </div>
+                    ))}
+                    {auditLogs.length === 0 && (
+                      <p className="text-slate-400 py-4">
+                        No audit events generated over this session timeline
+                        boundary.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </main>
