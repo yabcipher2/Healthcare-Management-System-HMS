@@ -1,5 +1,18 @@
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
+export const clearExpiredToken = () => {
+  localStorage.removeItem("token");
+  localStorage.removeItem("user");
+};
+
+export const handleAuthError = (response) => {
+  if (response.status === 401) {
+    clearExpiredToken();
+    throw new Error("Session expired. Please log in again.");
+  }
+  return response;
+};
+
 export const logAudit = async ({
   action,
   module,

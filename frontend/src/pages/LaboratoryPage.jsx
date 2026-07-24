@@ -11,49 +11,46 @@ import {
   ShieldAlert,
   Clock,
   Beaker,
-  Users,
+  User,
   LogOut,
-  Plus,
-  ChevronRight,
-  BarChart3,
-  Filter,
-  Sliders,
-  X,
-  FileText,
-  ClipboardList,
+  Zap,
 } from "lucide-react";
 import {
   logAudit,
   fetchAuditLogs,
   fetchAuditAlertsCount,
 } from "../utils/audit";
+import NotificationBell from "../components/NotificationBell";
 
 export default function LaboratoryPage({ onLogout }) {
-  const [activeTab, setActiveTab] = useState("dashboard"); // dashboard, activeOrders, panelInventory, labAudit
+  const [activeTab, setActiveTab] = useState("activeOrders");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedOrder, setSelectedOrder] = useState(null);
   const hospitalLogo = "/mesra icon.png";
   const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
   const token = localStorage.getItem("token");
 
-  // 1. Dynamic Laboratory Panels & Test Directory
   const [labPanels, setLabPanels] = useState([]);
-
-  // 2. Live Electronic Work Order Queue (Passed from Physicians)
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [auditAlertsCount, setAuditAlertsCount] = useState(0);
   const [auditLogs, setAuditLogs] = useState([]);
   const [auditLogsLoading, setAuditLogsLoading] = useState(false);
   const [auditLogsError, setAuditLogsError] = useState("");
-  const [error, setError] = useState(null);
+  const [error, setError] = useState("");
+
+  const labTechProfile = {
+    name: "Abebe Kebede (BSc)",
+    role: "Senior Laboratory Technologist",
+    department: "Advanced Diagnostics Unit",
+  };
 
   const loadAuditAlertsCount = useCallback(async () => {
     try {
       const data = await fetchAuditAlertsCount();
       setAuditAlertsCount(data);
     } catch {
-      // Silently fail audit count fetch - non-critical
+      // Silently fail
     }
   }, []);
 
@@ -80,37 +77,43 @@ export default function LaboratoryPage({ onLogout }) {
     return () => clearInterval(interval);
   }, [loadAuditAlertsCount]);
 
-  // Fetch lab panels and orders on component mount
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setLoading(true);
-        const [panelsRes, ordersRes] = await Promise.all([
-          fetch(`${API_URL}/api/lab/panels`, {
-            headers: { Authorization: `Bearer ${token}` },
-          }),
-          fetch(`${API_URL}/api/lab/orders`, {
-            headers: { Authorization: `Bearer ${token}` },
-          }),
-        ]);
+  const fetchLaboratoryData = useCallback(async () => {
+    try {
+      setLoading(true);
+      const [panelsRes, ordersRes] = await Promise.all([
+        fetch(`${API_URL}/api/lab/panels`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+        fetch(`${API_URL}/api/lab/orders`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+      ]);
 
-        if (!panelsRes.ok || !ordersRes.ok)
-          throw new Error("Failed to fetch data");
-        const panelsData = await panelsRes.json();
-        const ordersData = await ordersRes.json();
+      if (!panelsRes.ok || !ordersRes.ok)
+        throw new Error("Failed to fetch laboratory data");
+      const panelsData = await panelsRes.json();
+      const ordersData = await ordersRes.json();
 
-        setLabPanels(panelsData.data || []);
-        setOrders(ordersData.data || []);
-      } catch (err) {
-        setError(err.message);
-        console.error("Error fetching laboratory data:", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchData();
+      setLabPanels(panelsData.data || []);
+      // Only display orders that are not yet completed in the active queue
+      const activeOrders = (ordersData.data || []).filter(
+        (order) =>
+          order.status !== "Completed" && order.labStatus !== "Completed",
+      );
+      setOrders(activeOrders);
+    } catch (err) {
+      setError(err.message);
+      console.error("Error fetching laboratory data:", err);
+    } finally {
+      setLoading(false);
+    }
   }, [API_URL, token]);
+
+  useEffect(() => {
+    fetchLaboratoryData();
+    const interval = setInterval(fetchLaboratoryData, 5000);
+    return () => clearInterval(interval);
+  }, [fetchLaboratoryData]);
 
   const handleResultChange = (panelKey, value) => {
     setSelectedOrder((prev) => ({
@@ -122,569 +125,639 @@ export default function LaboratoryPage({ onLogout }) {
     }));
   };
 
-  // Submit Analyzed Results to Central EMR Server
+  const handleReportChange = (value) => {
+    setSelectedOrder((prev) => ({
+      ...prev,
+      diagnosisReport: value,
+    }));
+  };
+
+  // Submit individual examination results back to Doctor EMR
   const handleVerifyAndSubmit = async (e) => {
     e.preventDefault();
+    const orderId = selectedOrder._id || selectedOrder.id;
+    const isEmergencyBypass = selectedOrder.cashierStatus === "BYPASSED_EMERGENCY";
+    const isEmergency =
+      selectedOrder.triageCategory === "Red / Immediate" ||
+      selectedOrder.triageCategory === "Emergency" ||
+      isEmergencyBypass;
+
+    if (!isEmergency && selectedOrder.cashierStatus !== "PAID") {
+      alert(
+        "Payment confirmation required from cashier before results can be released to Doctor EMR.",
+      );
+      return;
+    }
+
+    if (isEmergency && !isEmergencyBypass) {
+      await logAudit({
+        action: "EMERGENCY_BYPASS",
+        module: "Laboratory",
+        details: `EMERGENCY BYPASS ACTIVATED: Lab results for ${selectedOrder.patientName} (${selectedOrder.patientCardId || selectedOrder.cardId}) released without cashier payment — triage category: ${selectedOrder.triageCategory}. Billing deferred to post-treatment settlement queue.`,
+        targetId: orderId,
+        targetType: "LabOrder",
+      });
+    }
 
     try {
+      // Update LabOrder record with results
       const response = await fetch(
-        `${API_URL}/api/lab/orders/${selectedOrder._id || selectedOrder.id}/result`,
+        `${API_URL}/api/lab/orders/${orderId}/result`,
         {
           method: "PUT",
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify(selectedOrder.resultsLogged || {}),
+          body: JSON.stringify({
+            results: selectedOrder.resultsLogged || {},
+            diagnosisReport: selectedOrder.diagnosisReport || "",
+          }),
         },
       );
 
-      if (!response.ok) throw new Error("Failed to submit lab results");
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(
+          errData.message || "Failed to update lab order results",
+        );
+      }
+
+      // Submit results back to doctor EMR
+      const doctorResponse = await fetch(`${API_URL}/api/doctor/lab-results`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          cardId: selectedOrder.patientCardId || selectedOrder.cardId,
+          patientName: selectedOrder.patientName,
+          linkedPatient: selectedOrder.linkedPatient,
+          resultsLogged: selectedOrder.resultsLogged || {},
+          diagnosisReport: selectedOrder.diagnosisReport || "",
+          timestamp: new Date().toISOString(),
+        }),
+      });
+
+      if (!doctorResponse.ok) {
+        const errData = await doctorResponse.json();
+        throw new Error(errData.message || "Failed to send results to doctor");
+      }
+
+      await logAudit({
+        userId: localStorage.getItem("userId") || "unknown",
+        userName: labTechProfile.name,
+        userRole: labTechProfile.role,
+        department: labTechProfile.department,
+        module: "LABORATORY_UNIT",
+        action: "SUBMIT_RESULTS",
+        details: `Diagnostic results for ${selectedOrder.patientName} (${selectedOrder.patientCardId || selectedOrder.cardId}) finalized and released to Physician EMR.`,
+      });
 
       alert(
-        `Laboratory Analysis Token ${selectedOrder.id} successfully authenticated, signed by Lab Tech, and released to Doctor EMR timeline.`,
+        `Laboratory Analysis Token ${orderId} successfully authenticated, signed by Lab Tech, and released to Doctor EMR timeline.`,
       );
 
-      // Remove from active queue
+      // Optimistically remove the record from the local queue state immediately
       setOrders((prev) =>
-        prev.filter(
-          (o) => o._id !== selectedOrder._id && o.id !== selectedOrder.id,
-        ),
+        prev.filter((o) => o._id !== orderId && o.id !== orderId),
       );
       setSelectedOrder(null);
+      loadAuditLogs();
       setActiveTab("activeOrders");
     } catch (err) {
-      alert(`Error: ${err.message}`);
-      console.error("Error submitting lab results:", err);
+      alert(`Error submitting lab results: ${err.message}`);
     }
   };
 
-  // Safeguard values inside inputs to prevent uncontrolled crashes
   const loggedResults = selectedOrder?.resultsLogged || {};
 
   return (
-    <div className="flex min-h-screen bg-slate-50 text-slate-800 font-sans antialiased">
-      {/* SIDEBAR NAVIGATION PANEL */}
-      <aside className="w-68 bg-white border-r border-slate-200/80 flex flex-col justify-between shrink-0 z-30">
+    <div className="flex min-h-screen bg-[#0E1B17] text-white font-sans antialiased">
+      {/* SIDEBAR - COMPACT (Laboratory) */}
+      <aside className="bg-[#0E1B17] text-slate-300 flex flex-col justify-between shrink-0 sticky top-0 h-screen overflow-hidden z-30 font-mono border-r border-[#0E1B17] w-56">
         <div>
-          <div className="p-6 border-b border-slate-100 flex items-center gap-3">
+          {/* Brand Panel - Compact */}
+          <div className="p-3 border-b border-[#29323a] flex items-center gap-2 bg-[#0E1B17]">
             <img
               src={hospitalLogo}
               alt="Mesra Logo"
-              className="w-10 h-10 object-contain rounded-xl"
+              className="w-7 h-7 object-contain rounded-lg"
             />
             <div>
-              <h3 className="font-black text-slate-900 tracking-tight text-md leading-none">
-                MESRA <span className="text-blue-600">LAB</span>
+              <h3 className="font-black text-[11px] text-white leading-none">
+                MESRA DIGITAL
               </h3>
-              <span className="text-[10px] text-slate-400 font-mono tracking-widest block mt-1 uppercase font-bold">
-                Diagnostics Unit
+              <span className="text-[9px] text-[#94A3B8] font-bold tracking-wider block mt-0.5">
+                Lab Diagnostics
               </span>
             </div>
           </div>
 
-          <nav className="p-4 space-y-1">
+          {/* Nav Stack - Compact */}
+          <nav className="p-2 space-y-1">
+            <div className="text-[9px] font-black uppercase text-[#94A3B8] px-2 py-1.5 tracking-widest">
+              Interface Channels
+            </div>
             <button
-              onClick={() => {
-                setActiveTab("dashboard");
-                setSelectedOrder(null);
-              }}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all ${activeTab === "dashboard" ? "bg-blue-50 text-blue-600" : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"}`}
+              onClick={() => { setActiveTab("dashboard"); setSelectedOrder(null); }}
+              className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-md text-[11px] font-bold uppercase tracking-wider transition ${
+                activeTab === "dashboard" ? "bg-[#10B981] text-white shadow-md font-black" : "text-[#94A3B8] hover:bg-[#0E1B17] hover:text-white"
+              }`}
             >
-              <LayoutDashboard size={16} /> Hub Throughput
+              <LayoutDashboard size={14} /> <span>Lab Dashboard</span>
+            </button>
+
+            {/* EMERGENCY HUB */}
+            {(() => {
+              const emergencyCount = orders.filter(
+                (o) => o.triageCategory === "Red / Immediate" || o.triageCategory === "Emergency" || o.cashierStatus === "BYPASSED_EMERGENCY"
+              ).length;
+              return (
+                <button
+                  onClick={() => { setActiveTab("emergencyHub"); setSelectedOrder(null); }}
+                  className={`w-full flex items-center justify-between px-2.5 py-2 rounded-md text-[11px] font-bold uppercase tracking-wider transition ${
+                    activeTab === "emergencyHub"
+                      ? "bg-[#EF4444] text-white shadow-md font-black"
+                      : "text-[#94A3B8] hover:bg-[#b91c1c]/40 hover:text-[#EF4444]/80"
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <Zap size={14} /> <span>Emergency Hub</span>
+                  </div>
+                  {emergencyCount > 0 && (
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold bg-[#EF4444]/20 text-[#EF4444]/80 ${activeTab !== "emergencyHub" ? "animate-pulse" : ""}`}>
+                      {emergencyCount}
+                    </span>
+                  )}
+                </button>
+              );
+            })()}
+
+            <button
+              onClick={() => { setActiveTab("activeOrders"); setSelectedOrder(null); }}
+              className={`w-full flex items-center justify-between px-2.5 py-2 rounded-md text-[11px] font-bold uppercase tracking-wider transition ${
+                activeTab === "activeOrders" ? "bg-[#10B981] text-white shadow-md font-black" : "text-[#94A3B8] hover:bg-[#0E1B17] hover:text-white"
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <TestTube size={14} /> <span>Doctor Request Queue</span>
+              </div>
+              {orders.length > 0 && (
+                <span className="bg-[#0E1B17] text-[#10B981] border border-[#10B981]/20 px-2 py-0.5 rounded text-[10px] font-bold font-mono">
+                  {orders.length}
+                </span>
+              )}
             </button>
             <button
-              onClick={() => {
-                setActiveTab("activeOrders");
-                setSelectedOrder(null);
-              }}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all ${activeTab === "activeOrders" ? "bg-blue-50 text-blue-600" : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"}`}
+              onClick={() => setActiveTab("labAudit")}
+              className={`w-full flex items-center justify-between px-2.5 py-2 rounded-md text-[11px] font-bold uppercase tracking-wider transition ${
+                activeTab === "labAudit" ? "bg-amber-600 text-white shadow-md font-black" : "text-[#94A3B8] hover:bg-[#0E1B17] hover:text-white"
+              }`}
             >
-              <TestTube size={16} /> Work Orders ({orders.length})
-            </button>
-            <button
-              onClick={() => {
-                setActiveTab("panelInventory");
-                setSelectedOrder(null);
-              }}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all ${activeTab === "panelInventory" ? "bg-blue-50 text-blue-600" : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"}`}
-            >
-              <Beaker size={16} /> Test Directory
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setActiveTab("labAudit");
-                loadAuditLogs();
-              }}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition ${activeTab === "labAudit" ? "bg-rose-50 text-rose-600" : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"}`}
-            >
-              <ShieldAlert size={16} /> Audit Activity ({auditAlertsCount})
+              <div className="flex items-center gap-2">
+                <ShieldAlert size={14} /> <span>Lab Audit Tracks</span>
+              </div>
+              {auditAlertsCount > 0 && (
+                <span className="bg-[#0E1B17] text-amber-300 px-2 py-0.5 rounded text-[10px] font-bold">
+                  {auditAlertsCount}
+                </span>
+              )}
             </button>
           </nav>
         </div>
 
-        <div className="p-4 border-t border-slate-100">
-          <div className="bg-slate-50 rounded-xl p-3 text-[11px] font-mono text-slate-500 mb-3 border border-slate-200/60">
-            <p className="font-bold text-blue-600">Laboratory Terminal</p>
-            <p>Analyzer Sync: ONLINE</p>
-            <p>Technologist: K. Yohannes</p>
+        <div className="p-3 border-t border-[#29323a] bg-[#0E1B17] space-y-3">
+          <div className="bg-[#0E1B17] rounded-lg p-2.5 border border-[#0E1B17] text-[10px]">
+            <div className="flex items-center gap-1.5 text-[#10B981] font-bold uppercase tracking-wide mb-1">
+              <User size={12} /> <span>Operator Account</span>
+            </div>
+            <p className="text-white truncate font-bold text-[11px]">
+              {labTechProfile.name}
+            </p>
+            <p className="text-[#94A3B8] truncate text-[9px] mt-0.5">
+              {labTechProfile.role}
+            </p>
           </div>
           <button
-            type="button"
-            onClick={() => {
-              localStorage.clear();
-              sessionStorage.clear();
-              window.location.href = "/login";
-            }}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-900 hover:bg-rose-950/40 border border-slate-800 hover:border-rose-900 text-slate-400 hover:text-rose-400 text-xs font-bold uppercase tracking-wider rounded-xl transition-all"
+            onClick={onLogout}
+            className="w-full py-2 bg-[#EF4444]/40 hover:bg-[#b91c1c] border border-[#EF4444]/30 text-[#EF4444] font-bold uppercase text-[10px] tracking-wider rounded-lg transition flex items-center justify-center gap-1.5"
           >
-            <LogOut size={14} /> Exit Platform
+            <LogOut size={13} /> Terminate Session
           </button>
         </div>
       </aside>
 
-      {/* CORE WORKSPACE AREA */}
-      <div className="flex-1 flex flex-col min-w-0">
-        <header className="bg-white border-b border-slate-200/80 sticky top-0 px-8 py-5 z-20 flex justify-between items-center">
-          <h1 className="text-sm font-black tracking-widest text-slate-900 uppercase font-mono">
-            {activeTab === "dashboard" && "Analyzer Performance & Load Metrics"}
-            {activeTab === "activeOrders" &&
-              (selectedOrder
-                ? "Biochemical Assaying Entry"
-                : "Incoming Specimen Accession Queue")}
-            {activeTab === "panelInventory" &&
-              "Institutional Pathology Test Registry"}
-            {activeTab === "labAudit" && "System Configuration Auditing"}
-          </h1>
-          <div className="flex items-center gap-2 font-mono text-xs text-slate-500 bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200/40">
-            <Clock size={12} className="text-blue-600" /> Active System Time:{" "}
-            <span className="font-bold text-slate-800">11:35 PM</span>
-          </div>
-        </header>
-
-        {/* Content View Container */}
+      {/* MAIN CONTENT */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-x-hidden">
+        <div className="bg-[#0E1B17] border-b border-white/20 px-6 py-3 flex justify-between items-center shadow-sm">
+          <span className="text-[11px] font-black text-slate-300 uppercase tracking-widest font-mono">Lab Diagnostics Terminal</span>
+          <NotificationBell role="Laboratory" />
+        </div>
         <main className="flex-1 p-8 overflow-y-auto">
-          {/* 1. LABORATORY INTELLIGENT DASHBOARD */}
-          {activeTab === "dashboard" && (
-            <div className="space-y-8 animate-fadeIn">
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                {[
-                  {
-                    label: "Pending Accessions",
-                    value: orders.length,
-                    icon: <TestTube size={18} />,
-                    bg: "bg-blue-600 text-white",
-                  },
-                  {
-                    label: "High Priority Triggers",
-                    value:
-                      orders.filter((o) => o.urgency.includes("High")).length +
-                      " Orders",
-                    icon: <ShieldAlert size={18} />,
-                    bg: "bg-rose-50 text-rose-600 border border-rose-100",
-                  },
-                  {
-                    label: "Avg Analyzer Run Cycle",
-                    value: "22.4 Mins",
-                    icon: <Clock size={18} />,
-                    bg: "bg-emerald-50 text-emerald-600 border border-emerald-100",
-                  },
-                  {
-                    label: "Completed Panels Today",
-                    value: "68 Profiles",
-                    icon: <ClipboardCheck size={18} />,
-                    bg: "bg-slate-100 text-slate-700",
-                  },
-                ].map((stat, idx) => (
-                  <div
-                    key={idx}
-                    className="p-5 rounded-2xl flex items-center justify-between shadow-sm bg-white border border-slate-200/60"
-                  >
-                    <div>
-                      <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
-                        {stat.label}
-                      </span>
-                      <span className="text-2xl font-black text-slate-900 mt-1 block font-mono">
-                        {stat.value}
-                      </span>
-                    </div>
-                    <div className={`p-3 rounded-xl ${stat.bg}`}>
-                      {stat.icon}
-                    </div>
-                  </div>
-                ))}
-              </div>
+          {error && (
+            <div className="mb-6 p-4 bg-[#EF4444]/10 border border-[#EF4444]/50 rounded-xl text-red-700 text-xs font-medium">
+              {error}
+            </div>
+          )}
 
-              {/* Pathology Quality Control Information Block */}
-              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-                <h3 className="font-bold text-sm text-slate-900 uppercase tracking-wider mb-4 flex items-center gap-2">
-                  <BarChart3 className="text-blue-600" size={16} /> Real-Time
-                  Analyzer Interface Sync
-                </h3>
-                <p className="text-xs text-slate-600 leading-relaxed max-w-3xl">
-                  This workstation features dynamic local interface hooks with
-                  centralized hematology and biochemistry analyzers. Specimens
-                  scanned via regional institutional barcodes will register raw
-                  evaluation logs directly into the pending work order profiles
-                  below.
+          {activeTab === "dashboard" && (
+            <div className="space-y-6">
+              <div className="bg-[#0E1B17] border border-white/20/60 p-6 rounded-2xl shadow-sm">
+                <h1 className="text-xl font-black text-white tracking-tight">
+                  Diagnostics Control Dashboard
+                </h1>
+                <p className="text-[#94A3B8] text-xs mt-1">
+                  Laboratory workflow registry and automated payment clearance
+                  monitoring systems.
                 </p>
               </div>
-            </div>
-          )}
 
-          {/* 2. ACTIVE INVESTIGATION QUEUE */}
-          {activeTab === "activeOrders" && !selectedOrder && (
-            <div className="space-y-6 animate-fadeIn">
-              <div className="bg-white border border-slate-200 rounded-2xl p-4 flex flex-col sm:flex-row justify-between items-center gap-4 shadow-sm">
-                <div className="relative w-full sm:w-80">
-                  <Search
-                    className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                    size={14}
-                  />
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search by Patient name or MRN..."
-                    className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-              </div>
-
-              <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-bold uppercase text-slate-500 font-mono">
-                      <th className="p-4 px-6">Accession ID</th>
-                      <th className="p-4 px-6">Patient Identifier</th>
-                      <th className="p-4 px-6">Requested Panels</th>
-                      <th className="p-4 px-6">Specimen Container</th>
-                      <th className="p-4 px-6">Physician</th>
-                      <th className="p-4 px-6 text-right">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 text-xs font-medium text-slate-700">
-                    {orders
-                      .filter(
-                        (o) =>
-                          o.patientName
-                            .toLowerCase()
-                            .includes(searchQuery.toLowerCase()) ||
-                          o.mrn.includes(searchQuery),
-                      )
-                      .map((order) => (
-                        <tr
-                          key={order.id}
-                          className="hover:bg-slate-50/60 transition-all"
-                        >
-                          <td className="p-4 px-6 font-mono text-blue-600 font-bold">
-                            {order.id}
-                          </td>
-                          <td className="p-4 px-6">
-                            <span className="text-slate-900 font-bold text-sm block">
-                              {order.patientName}
-                            </span>
-                            <span className="text-[10px] text-slate-400 font-mono">
-                              MRN: {order.mrn} • {order.gender}, {order.age} Yrs
-                            </span>
-                          </td>
-                          <td className="p-4 px-6">
-                            <div className="flex flex-wrap gap-1 max-w-xs">
-                              {order.panels.map((p, i) => (
-                                <span
-                                  key={i}
-                                  className="bg-slate-100 text-slate-700 text-[9px] font-bold px-2 py-0.5 rounded-md"
-                                  Amin
-                                >
-                                  {p}
-                                </span>
-                              ))}
-                            </div>
-                          </td>
-                          <td className="p-4 px-6 font-mono text-slate-500 text-[11px]">
-                            {order.specimen}
-                          </td>
-                          <td className="p-4 px-6 text-slate-600 font-medium">
-                            {order.requestedBy}
-                          </td>
-                          <td className="p-4 px-6 text-right">
-                            <button
-                              onClick={() => setSelectedOrder(order)}
-                              className={`inline-flex items-center gap-1.5 px-4 py-2 text-white text-[11px] font-black uppercase tracking-wider rounded-xl transition-all shadow-sm ${
-                                order.urgency.includes("High")
-                                  ? "bg-rose-600 hover:bg-rose-700"
-                                  : "bg-blue-600 hover:bg-blue-700"
-                              }`}
-                            >
-                              Input Logs <ChevronRight size={12} />
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* 3. BIOCHEMICAL ASSAY RESULTS ENTRY */}
-          {activeTab === "activeOrders" && selectedOrder && (
-            <div className="max-w-3xl mx-auto bg-white border border-slate-200 rounded-3xl shadow-xl overflow-hidden text-slate-800 animate-fadeIn">
-              <div className="p-6 bg-slate-900 text-white flex justify-between items-center">
-                <div>
-                  <h2 className="text-base font-bold uppercase tracking-wider">
-                    {selectedOrder.patientName}
-                  </h2>
-                  <p className="text-xs text-slate-400 font-mono mt-0.5">
-                    MRN Profile ID: {selectedOrder.mrn} | Specimen:{" "}
-                    {selectedOrder.specimen}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="bg-[#0E1B17] border border-white/20/60 p-5 rounded-2xl shadow-sm">
+                  <span className="text-xs font-bold text-[#94A3B8] uppercase tracking-wider block">
+                    Pending Analysis Matrix
+                  </span>
+                  <p className="text-2xl font-black text-white mt-2">
+                    {orders.length}
                   </p>
                 </div>
-                <span className="bg-rose-600 text-white text-[10px] font-mono font-black px-2.5 py-1 rounded-md uppercase tracking-widest animate-pulse">
-                  {selectedOrder.urgency}
-                </span>
-              </div>
-
-              <form onSubmit={handleVerifyAndSubmit} className="p-8 space-y-6">
-                <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl text-xs text-blue-900 font-medium">
-                  <strong>Clinical Orders Released by:</strong>{" "}
-                  {selectedOrder.requestedBy} on {selectedOrder.timestamp}
-                </div>
-
-                <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest block pt-2 border-b border-slate-100 pb-2">
-                  Quantitative Metrics Acquisition
-                </h3>
-
-                {/* Render Dynamic Form Fields */}
-                {selectedOrder.panels.includes(
-                  "Complete Blood Count (CBC)",
-                ) && (
-                  <div className="space-y-4 bg-slate-50/60 p-5 rounded-2xl border border-slate-200/40">
-                    <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                      Hematology - CBC Parameters
-                    </h4>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div className="space-y-1.5">
-                        <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider block">
-                          WBC Count (×10^9/L) [Ref: 4.0 - 11.0]
-                        </label>
-                        <input
-                          type="text"
-                          required
-                          value={loggedResults.wbc || ""}
-                          onChange={(e) =>
-                            handleResultChange("wbc", e.target.value)
-                          }
-                          placeholder="e.g. 7.2"
-                          className="w-full px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider block">
-                          RBC Count (×10^12/L) [Ref: 4.5 - 5.9]
-                        </label>
-                        <input
-                          type="text"
-                          required
-                          value={loggedResults.rbc || ""}
-                          onChange={(e) =>
-                            handleResultChange("rbc", e.target.value)
-                          }
-                          placeholder="e.g. 5.1"
-                          className="w-full px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {selectedOrder.panels.includes("Serum Creatinine") && (
-                  <div className="space-y-4 bg-slate-50/60 p-5 rounded-2xl border border-slate-200/40">
-                    <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                      Renal Function Parameters
-                    </h4>
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider block">
-                        Serum Creatinine (mg/dL) [Ref: 0.7 - 1.3]
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        value={loggedResults.creatinine || ""}
-                        onChange={(e) =>
-                          handleResultChange("creatinine", e.target.value)
-                        }
-                        placeholder="e.g. 0.95"
-                        className="w-full max-w-md px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-                  </div>
-                )}
-
-                {selectedOrder.panels.includes("Random Blood Sugar (RBS)") && (
-                  <div className="space-y-4 bg-slate-50/60 p-5 rounded-2xl border border-slate-200/40">
-                    <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                      Enzymology / Metabolic Screen
-                    </h4>
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider block">
-                        Plasma Glucose (mg/dL) [Ref: 70 - 140]
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        value={loggedResults.rbs || ""}
-                        onChange={(e) =>
-                          handleResultChange("rbs", e.target.value)
-                        }
-                        placeholder="e.g. 112"
-                        className="w-full max-w-md px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-                  </div>
-                )}
-
-                <div className="flex gap-3 justify-end pt-4 border-t border-slate-100">
-                  <button
-                    type="button"
-                    onClick={() => setSelectedOrder(null)}
-                    className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-bold uppercase tracking-wider rounded-xl transition-all"
-                  >
-                    Cancel Run
-                  </button>
-                  <button
-                    type="submit"
-                    className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold uppercase tracking-wider rounded-xl transition-all shadow-md flex items-center gap-1"
-                  >
-                    Verify & Transmit Analytics
-                  </button>
-                </div>
-              </form>
-            </div>
-          )}
-
-          {/* 4. PATHOLOGY DIAGNOSTIC DIRECTORY */}
-          {activeTab === "panelInventory" && (
-            <div className="space-y-6 animate-fadeIn">
-              <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-bold uppercase text-slate-500 font-mono">
-                      <th className="p-4 px-6">Panel Code</th>
-                      <th className="p-4 px-6">Investigation Profile Title</th>
-                      <th className="p-4 px-6">Laboratory Section</th>
-                      <th className="p-4 px-6">Standard Turnaround (TAT)</th>
-                      <th className="p-4 px-6 text-right">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 text-xs font-medium text-slate-700">
-                    {labPanels.map((panel) => (
-                      <tr
-                        key={panel.code}
-                        className="hover:bg-slate-50/60 transition-all"
-                      >
-                        <td className="p-4 px-6 font-mono font-bold text-blue-600">
-                          {panel.code}
-                        </td>
-                        <td className="p-4 px-6 text-slate-900 font-bold text-sm">
-                          {panel.name}
-                        </td>
-                        <td className="p-4 px-6 font-mono text-slate-500">
-                          {panel.section}
-                        </td>
-                        <td className="p-4 px-6 text-slate-600">
-                          {panel.turnaround}
-                        </td>
-                        <td className="p-4 px-6 text-right">
-                          <span className="inline-block px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-600 border border-emerald-100 rounded-md">
-                            {panel.status}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* 5. DEPARTMENT AUDIT LOGS */}
-          {activeTab === "labAudit" && (
-            <div className="space-y-6 animate-fadeIn">
-              <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
-                <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/30">
-                  <div>
-                    <h1 className="text-2xl font-black text-slate-900">
-                      Department Audit Logs
-                    </h1>
-                    <p className="text-slate-400 font-medium mt-1">
-                      Your recent activity and department changes
-                    </p>
-                  </div>
-                  <span className="text-xs font-mono font-bold bg-rose-50 text-rose-600 border border-rose-100 px-3 py-1.5 rounded-lg uppercase">
-                    My Department
+                <div className="bg-[#0E1B17] border border-white/20/60 p-5 rounded-2xl shadow-sm">
+                  <span className="text-xs font-bold text-[#94A3B8] uppercase tracking-wider block">
+                    Security Alerts Managed
                   </span>
+                  <p className="text-2xl font-black text-white mt-2">
+                    {auditAlertsCount}
+                  </p>
                 </div>
-                {auditLogsError && (
-                  <div className="mx-6 mt-6 p-4 bg-rose-50 border border-rose-200 rounded-xl text-xs font-bold text-rose-700">
-                    {auditLogsError}
+                <div className="bg-[#0E1B17] border border-white/20/60 p-5 rounded-2xl shadow-sm">
+                  <span className="text-xs font-bold text-[#94A3B8] uppercase tracking-wider block">
+                    Department Module
+                  </span>
+                  <p className="text-sm font-black text-[#10B981] mt-2 font-mono uppercase">
+                    {labTechProfile.department}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* EMERGENCY HUB TAB */}
+          {activeTab === "emergencyHub" && (() => {
+            const emergencyOrders = orders.filter(
+              (o) => o.triageCategory === "Red / Immediate" || o.triageCategory === "Emergency" || o.cashierStatus === "BYPASSED_EMERGENCY"
+            );
+            return (
+              <div className="space-y-4">
+                <div className="bg-[#EF4444] text-white p-5 rounded-2xl flex items-center justify-between shadow-lg">
+                  <div className="flex items-center gap-3">
+                    <Zap size={22} className="animate-pulse" />
+                    <div>
+                      <h2 className="text-sm font-black uppercase tracking-widest">Emergency Lab Queue</h2>
+                      <p className="text-[#EF4444]/80 text-xs mt-0.5">Cashier bypass active — results release is immediate for all critical cases.</p>
+                    </div>
                   </div>
-                )}
-                {auditLogsLoading ? (
-                  <div className="p-10 text-center text-xs font-black text-slate-400 uppercase tracking-wider">
-                    Loading audit logs...
-                  </div>
-                ) : auditLogs.length === 0 ? (
-                  <div className="p-10 text-center text-xs font-black text-slate-400 uppercase tracking-wider">
-                    No audit logs found for your department
+                  <span className="text-4xl font-black">{emergencyOrders.length}</span>
+                </div>
+
+                {emergencyOrders.length === 0 ? (
+                  <div className="bg-[#0E1B17] border border-white/20 rounded-2xl p-12 text-center">
+                    <CheckCircle size={32} className="text-[#10B981] mx-auto mb-3" />
+                    <p className="text-sm font-black text-[#94A3B8] uppercase tracking-wider">No active emergency cases in queue</p>
                   </div>
                 ) : (
-                  <div className="divide-y divide-slate-100">
-                    {auditLogs.map((log) => (
-                      <div
-                        key={log._id || log.id}
-                        className="p-5 flex items-start gap-4 hover:bg-slate-50/50 transition"
-                      >
-                        <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center shrink-0 text-slate-500">
-                          {log.action === "CREATE" && <Plus size={18} />}
-                          {log.action === "UPDATE" && <FileText size={18} />}
-                          {log.action === "DELETE" && <X size={18} />}
-                          {[
-                            "ACTIVATE",
-                            "DEACTIVATE",
-                            "RESTORE",
-                            "ARCHIVE",
-                          ].includes(log.action) && <Activity size={18} />}
-                          {log.action === "LOGIN" && <LogOut size={18} />}
-                          {![
-                            "CREATE",
-                            "UPDATE",
-                            "DELETE",
-                            "ACTIVATE",
-                            "DEACTIVATE",
-                            "RESTORE",
-                            "ARCHIVE",
-                            "LOGIN",
-                          ].includes(log.action) && <ClipboardList size={18} />}
+                  <div className="space-y-3">
+                    {emergencyOrders.map((order) => (
+                      <div key={order._id} className="bg-[#0E1B17] border-2 border-rose-400 rounded-2xl overflow-hidden shadow-md">
+                        <div className="bg-[#EF4444] px-4 py-2.5 flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Zap size={13} className="text-white animate-pulse" />
+                            <span className="text-white font-black text-[11px] uppercase tracking-wider">{order.patientName}</span>
+                            <span className="text-[#EF4444]/80 text-[10px] font-mono">| {order.patientCardId || order.cardId}</span>
+                          </div>
+                          <span className="bg-[#0E1B17] text-[#EF4444] text-[9px] font-black px-2 py-0.5 rounded uppercase">
+                            {order.triageCategory || "EMERGENCY"}
+                          </span>
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-xs font-black text-slate-900 uppercase">
-                              {log.module}
-                            </span>
-                            <span className="text-[10px] font-mono font-bold bg-blue-50 text-blue-600 px-2 py-0.5 rounded uppercase">
-                              {log.action}
+                        <div className="p-4 grid grid-cols-2 gap-3 text-[11px]">
+                          <div>
+                            <span className="text-[#94A3B8] font-bold block uppercase text-[9px] mb-1">Tests Ordered</span>
+                            <span className="font-mono text-slate-200">
+                              {(order.dispatchedTests || order.panels || []).join(", ") || "General Chemistry Suite"}
                             </span>
                           </div>
-                          <p className="text-xs text-slate-600 mt-1 leading-relaxed">
-                            {log.details}
-                          </p>
-                          <p className="text-[10px] text-slate-400 mt-1.5 font-mono">
-                            {log.userName} • {log.userRole} • {log.department} •{" "}
-                            {new Date(log.createdAt).toLocaleString()}
-                          </p>
+                          <div>
+                            <span className="text-[#94A3B8] font-bold block uppercase text-[9px] mb-1">Billing Status</span>
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-[#EF4444]/10 text-[#EF4444] border border-rose-300 text-[10px] font-black uppercase rounded">
+                              ⚡ BYPASSED — Post-Treatment Settlement
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-[#94A3B8] font-bold block uppercase text-[9px] mb-1">Age / Gender</span>
+                            <span className="font-mono text-slate-200">{order.age || "N/A"} yrs / {order.gender || "N/A"}</span>
+                          </div>
+                          <div>
+                            <span className="text-[#94A3B8] font-bold block uppercase text-[9px] mb-1">Authorizing Doctor</span>
+                            <span className="font-mono text-slate-200">{order.authorizingPhysician || order.requestedBy || "—"}</span>
+                          </div>
                         </div>
+                        <div className="px-4 pb-4">
+                          <button
+                            onClick={() => { setSelectedOrder(order); setActiveTab("activeOrders"); }}
+                            className="w-full py-2.5 bg-[#EF4444] hover:bg-[#b91c1c] text-white font-black uppercase tracking-widest text-[10px] rounded-lg transition flex items-center justify-center gap-2"
+                          >
+                            <Zap size={13} /> Process Emergency Results Now
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+          {activeTab === "activeOrders" && !selectedOrder && (
+            <div className="bg-[#0E1B17] border border-white/20/60 rounded-2xl shadow-sm overflow-hidden">
+              <div className="p-6 border-b border-white/10 bg-[#0E1B17]/50 flex justify-between items-center">
+                <div>
+                  <h2 className="text-md font-black text-white tracking-tight">
+                    Physician Dispatched Examination Queue
+                  </h2>
+                  <p className="text-xs text-[#94A3B8] mt-0.5">
+                    Select a paid order to enter individual examination results.
+                    Paid orders are clickable.
+                  </p>
+                </div>
+                <button
+                  onClick={fetchLaboratoryData}
+                  className="px-3 py-1.5 bg-[#0E1B17] border border-white/20 text-slate-300 text-xs font-bold rounded-xl shadow-sm hover:bg-[#0E1B17] transition"
+                >
+                  Sync Orders
+                </button>
+              </div>
+
+              {loading ? (
+                <div className="py-20 text-center text-xs text-[#94A3B8] font-medium">
+                  Loading examination queue...
+                </div>
+              ) : orders.length === 0 ? (
+                <div className="py-24 text-center text-xs text-[#94A3B8] font-medium font-sans">
+                  No incoming examination requests at this time.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-[#0E1B17] border-b border-white/10 text-[#94A3B8] text-[10px] font-black uppercase tracking-wider font-mono">
+                        <th className="py-4 px-6">Patient</th>
+                        <th className="py-4 px-6">Card Token</th>
+                        <th className="py-4 px-6">Examinations Requested</th>
+                        <th className="py-4 px-6">Payment Status</th>
+                        <th className="py-4 px-6 text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-[11px]">
+                      {orders.map((order) => {
+                        const isPaid = order.cashierStatus === "PAID";
+                        const isEmergency =
+                          order.triageCategory === "Red / Immediate" ||
+                          order.triageCategory === "Emergency" ||
+                          order.cashierStatus === "BYPASSED_EMERGENCY";
+                        const canProcess = isPaid || isEmergency;
+                        return (
+                          <tr
+                            key={order._id}
+                            className={`hover:bg-[#0E1B17] transition py-1 ${
+                              isEmergency
+                                ? "border-l-4 border-l-rose-600 bg-[#EF4444]/10/40"
+                                : ""
+                            }`}
+                          >
+                            <td className="py-2 px-4">
+                              <div className="flex items-center gap-2">
+                                {isEmergency && (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-[#EF4444] text-white text-[9px] font-black uppercase rounded animate-pulse">
+                                    ⚡ EMERGENCY
+                                  </span>
+                                )}
+                                <div className="font-bold text-white">
+                                  {order.patientName || "Walk-In Patient"}
+                                </div>
+                              </div>
+                              <div className="text-[10px] text-[#94A3B8]">
+                                Age: {order.age || "N/A"} | Gender:{" "}
+                                {order.gender || "N/A"}
+                              </div>
+                            </td>
+                            <td className="py-2 px-4 font-mono text-[#94A3B8] text-[10px]">
+                              {order.patientCardId || order.cardId || "N/A"}
+                            </td>
+                            <td className="py-2 px-4 font-mono font-bold text-slate-300">
+                              {order.dispatchedTests?.length
+                                ? order.dispatchedTests.join(", ")
+                                : order.panels?.length
+                                  ? order.panels.join(", ")
+                                  : "General Chemistry Suite"}
+                            </td>
+                            <td className="py-2 px-4">
+                              {isEmergency ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-[#EF4444]/10 text-[#EF4444] border border-rose-300 text-[10px] font-black uppercase rounded-md">
+                                  ⚡ BYPASSED
+                                </span>
+                              ) : isPaid ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-[#10B981]/10 text-[#10B981] border border-[#10B981]/30 text-[10px] font-black uppercase rounded-md">
+                                  ✓ Paid
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-500/10 text-amber-300 border border-amber-500/30 text-[10px] font-black uppercase rounded-md">
+                                  ⏳ Awaiting Payment
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-2 px-4 text-right">
+                              <button
+                                onClick={() => setSelectedOrder(order)}
+                                disabled={!canProcess}
+                                className={`inline-flex items-center gap-1 px-3 py-1.5 text-[10px] font-black uppercase tracking-wider rounded-lg transition ${
+                                  isEmergency
+                                    ? "bg-[#EF4444] hover:bg-[#b91c1c] text-white animate-pulse"
+                                    : isPaid
+                                      ? "bg-[#10B981] hover:bg-[#0D9668] text-white"
+                                      : "bg-[#0E1B17] text-[#94A3B8] cursor-not-allowed"
+                                }`}
+                              >
+                                {isEmergency ? "⚡ Process Now" : isPaid ? "Send Results" : "Locked"}
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeTab === "activeOrders" && selectedOrder && (
+            <div className="space-y-6">
+              <div className="bg-[#0E1B17] border border-white/20/60 p-6 rounded-2xl shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div>
+                  <h2 className="text-md font-black text-white tracking-tight">
+                    Individual Examination Result Entry:{" "}
+                    {selectedOrder.patientName}
+                  </h2>
+                  <p className="text-xs text-[#94A3B8] mt-0.5">
+                    Enter precise evaluation values for each requested
+                    diagnostic panel. Results will be transmitted directly to
+                    the assigned Physician EMR.
+                  </p>
+                  <div className="mt-2 flex gap-3 text-[10px] font-mono text-[#94A3B8]">
+                    <span>
+                      Card:{" "}
+                      {selectedOrder.patientCardId ||
+                        selectedOrder.cardId ||
+                        "N/A"}
+                    </span>
+                    <span>|</span>
+                    <span>Age: {selectedOrder.age || "N/A"}</span>
+                    <span>|</span>
+                    <span>Gender: {selectedOrder.gender || "N/A"}</span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setSelectedOrder(null)}
+                  className="px-3 py-1.5 bg-[#0E1B17] border border-white/20 text-slate-300 text-xs font-bold rounded-xl shadow-sm hover:bg-[#0E1B17] transition"
+                >
+                  Return to Queue
+                </button>
+              </div>
+
+              <div className="bg-[#0E1B17] border border-white/20/60 p-6 rounded-2xl shadow-sm">
+                <form onSubmit={handleVerifyAndSubmit} className="space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {(
+                      selectedOrder.dispatchedTests ||
+                      selectedOrder.panels ||
+                      []
+                    ).map((testKey) => (
+                      <div
+                        key={testKey}
+                        className="p-4 bg-[#0E1B17] border border-white/20/60 rounded-xl"
+                      >
+                        <label className="block text-xs font-black text-white uppercase tracking-wider mb-2 font-mono">
+                          {testKey} — Result Value
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={loggedResults[testKey] || ""}
+                          onChange={(e) =>
+                            handleResultChange(testKey, e.target.value)
+                          }
+                          className="w-full text-xs border border-white/20 rounded-xl p-3 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none font-medium bg-[#0E1B17]"
+                          placeholder="Enter analyzed result value..."
+                        />
+                      </div>
+                    ))}
+                    {(!selectedOrder.dispatchedTests ||
+                      selectedOrder.dispatchedTests.length === 0) &&
+                      (!selectedOrder.panels ||
+                        selectedOrder.panels.length === 0) && (
+                        <div className="col-span-2 text-center text-xs text-[#94A3B8] py-8">
+                          No specific examination panels dispatched. General
+                          result entry mode active.
+                        </div>
+                      )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="block text-xs font-black text-white uppercase tracking-wider font-mono">
+                      Clinical Diagnostic Summary / Laboratory Report
+                    </label>
+                    <textarea
+                      required
+                      value={selectedOrder.diagnosisReport || ""}
+                      onChange={(e) => handleReportChange(e.target.value)}
+                      rows={4}
+                      className="w-full text-xs border border-white/20 rounded-xl p-3 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none font-medium bg-[#0E1B17]"
+                      placeholder="Document comprehensive diagnostic findings, microscopic observations, and clinical correlations..."
+                    />
+                  </div>
+
+                  <div className="border-t border-white/10 pt-4 flex justify-end">
+                    <button
+                      type="submit"
+                      className="inline-flex items-center gap-1.5 px-6 py-3 bg-[#10B981] hover:bg-[#0D9668] text-white text-xs font-bold rounded-xl shadow-sm transition-all"
+                    >
+                      <ClipboardCheck size={14} /> Send Results to Physician EMR
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {activeTab === "labAudit" && (
+            <div className="space-y-4">
+              <div className="bg-[#0E1B17] border border-white/20/60 p-6 rounded-2xl shadow-sm">
+                <div className="flex justify-between items-center border-b border-white/10 pb-4 mb-4">
+                  <div>
+                    <h2 className="text-md font-black text-white tracking-tight">
+                      Diagnostics Facility Operational Audit Tracks
+                    </h2>
+                    <p className="text-xs text-[#94A3B8] mt-0.5">
+                      Cryptographic log node validation monitoring technician
+                      profiles and data transactions.
+                    </p>
+                  </div>
+                  <button
+                    onClick={loadAuditLogs}
+                    className="px-3 py-1.5 bg-[#0E1B17] border border-white/20 text-slate-300 text-xs font-bold rounded-xl shadow-sm hover:bg-[#0E1B17] transition"
+                  >
+                    Sync Trails
+                  </button>
+                </div>
+
+                {auditLogsLoading ? (
+                  <p className="text-xs text-[#94A3B8] animate-pulse py-4 font-medium">
+                    Retrieving security data packets...
+                  </p>
+                ) : auditLogsError ? (
+                  <p className="text-[11px] font-mono text-[#EF4444]">
+                    {auditLogsError}
+                  </p>
+                ) : (
+                  <div className="space-y-1.5 max-h-96 overflow-y-auto pr-1">
+                    {auditLogs.map((log, index) => (
+                      <div
+                        key={log._id || index}
+                        className="p-3 bg-[#0E1B17] border border-white/20/60 rounded-lg font-mono text-[11px] text-slate-300 flex justify-between items-center hover:bg-[#0E1B17]/80 transition shadow-sm"
+                      >
+                        <div className="flex items-center gap-3 truncate">
+                          <span className="text-[#94A3B8] text-[10px]">
+                            [
+                            {log.timestamp
+                              ? new Date(log.timestamp).toLocaleString()
+                              : "RECENT"}
+                            ]
+                          </span>
+                          <span className="text-[#10B981] font-black text-[9px] bg-[#10B981]/10 px-1.5 py-0.5 rounded border border-[#10B981]/20 uppercase">
+                            {log.action || "LAB_TRANSACT"}
+                          </span>
+                          <span className="truncate text-[#94A3B8] font-sans">
+                            Staff Operator:{" "}
+                            <strong>
+                              {log.userName || "Senior Lab Technologist"}
+                            </strong>{" "}
+                            ({log.userRole || "Lab Staff"})
+                          </span>
+                        </div>
+                        <span className="text-slate-200 font-medium font-sans truncate max-w-xs">
+                          {log.details || "No telemetry details."}
+                        </span>
                       </div>
                     ))}
                   </div>
