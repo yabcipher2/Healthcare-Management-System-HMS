@@ -1,14 +1,14 @@
 import React, { useState, useEffect } from "react";
 import { Mail, Lock, Eye, EyeOff, ShieldCheck } from "lucide-react";
 
-const Login = ({ onLoginSuccess }) => {
+const Login = ({ onLoginSuccess, onBackClick }) => {
   const [showPassword, setShowPassword] = useState(false);
   const [currentImg, setCurrentImg] = useState(0);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+  const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:5000";
 
   const images = [
     "https://images.unsplash.com/photo-1551076805-e1869033e561?auto=format&fit=crop&q=80&w=1400",
@@ -33,7 +33,10 @@ const Login = ({ onLoginSuccess }) => {
     try {
       const response = await fetch(`${API_URL}/api/auth/login`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
         body: JSON.stringify({ email, password }),
       });
       const result = await response.json();
@@ -124,17 +127,16 @@ const Login = ({ onLoginSuccess }) => {
             <h2 className="text-[10px] font-black text-[#94A3B8] uppercase tracking-[0.25em]">
               Clinical Portal Access
             </h2>
+            <button
+              type="button"
+              onClick={onBackClick}
+              className="mt-4 inline-flex items-center justify-center rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-[10px] font-black uppercase tracking-[0.3em] text-slate-600 hover:bg-slate-100 transition"
+            >
+              Back to portal
+            </button>
           </div>
 
-          <form className="space-y-4" onSubmit={handleLogin}>
-            {error && (
-              <div className="bg-[#EF4444]/10 border-l-4 border-[#EF4444] p-3 rounded-r-lg animate-bounce">
-                <p className="text-[9px] font-black text-[#EF4444] flex items-center gap-2 uppercase tracking-wider">
-                  Access Error: {error}
-                </p>
-              </div>
-            )}
-
+          <form className="space-y-6" onSubmit={handleLogin}>
             <div>
               <label className="block text-[9px] font-black text-[#94A3B8] uppercase tracking-widest mb-1.5 ml-1">
                 Identity/Email

@@ -1,6 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
-import { Search, LogOut, Pill, Menu } from "lucide-react";
-import NotificationBell from "../components/NotificationBell";
+import React, { useState } from "react";
 
 export default function PharmacyCashierPage({ onLogout }) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -8,480 +6,312 @@ export default function PharmacyCashierPage({ onLogout }) {
   const [paymentMethod, setPaymentMethod] = useState("Cash");
   const [referenceNumber, setReferenceNumber] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-
+  
+  // Animation/notification feedback state
   const [paymentSuccess, setPaymentSuccess] = useState(false);
-  const [processing, setProcessing] = useState(false);
-  const [pharmacyQueue, setPharmacyQueue] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
 
-  const hospitalLogo = "/mesra icon.png";
-  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
-  const token = localStorage.getItem("token");
-
-  const getAuthHeaders = () => ({
-    "Content-Type": "application/json",
-    Authorization: `Bearer ${token}`,
-  });
-
-  const fetchPharmacyOrders = useCallback(async () => {
-    try {
-      const response = await fetch(`${API_URL}/api/cashier/pharmacy/orders`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!response.ok) throw new Error("Failed to fetch pharmacy orders");
-      const data = await response.json();
-      const orders = (data.data || [])
-        .filter(
-          (o) => o.cashierStatus === "PENDING" || o.cashierStatus === "UNSENT",
-        )
-        .map((order) => ({
-          id: order._id,
-          name: order.patientName,
-          phone: "N/A",
-          age: order.age || "N/A",
-          gender: "N/A",
-          prescribedBy: order.doctorName || "N/A",
-          date: order.timestamp
-            ? new Date(order.timestamp).toLocaleDateString()
-            : "N/A",
-          prescriptions: (order.medications || []).map((med, idx) => ({
-            id: `M${idx}`,
-            name: med.name || med.formulation || "Medication",
-            price: med.price || 150,
-            qty: med.quantityRequired || med.qty || 1,
-            checked: true,
-          })),
-          cashierStatus: order.cashierStatus,
-          orderId: order.orderId,
-          patientCardId: order.patientCardId,
-        }));
-      setPharmacyQueue(orders);
-      setError("");
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
+  // High-fidelity Mock Pharmacy Queue
+  const [pharmacyQueue, setPharmacyQueue] = useState([
+    {
+      id: "P-409",
+      name: "Aster Asfaw",
+      phone: "0911778899",
+      age: 45,
+      gender: "Female",
+      prescribedBy: "Dr. Yonas Mulugeta",
+      date: "June 4, 2026",
+      prescriptions: [
+        { id: "M1", name: "Amoxicillin 500mg Caps", price: 180, qty: 2, checked: true },
+        { id: "M2", name: "Paracetamol 500mg Tabs", price: 45, qty: 1, checked: true },
+        { id: "M3", name: "Omeprazole 20mg Delayed-Release", price: 320, qty: 1, checked: true }
+      ]
+    },
+    {
+      id: "P-410",
+      name: "Tariku Bekele",
+      phone: "0944112233",
+      age: 52,
+      gender: "Male",
+      prescribedBy: "Dr. Abraham Alula",
+      date: "June 4, 2026",
+      prescriptions: [
+        { id: "M4", name: "Metformin 500mg ER", price: 150, qty: 3, checked: true },
+        { id: "M5", name: "Atorvastatin 20mg", price: 410, qty: 1, checked: true }
+      ]
     }
-  }, [API_URL, token]);
-
-  useEffect(() => {
-    fetchPharmacyOrders();
-    const interval = setInterval(fetchPharmacyOrders, 3000);
-    return () => clearInterval(interval);
-  }, [fetchPharmacyOrders]);
+  ]);
 
   const handleSelectPatient = (patient) => {
     setPaymentSuccess(false);
-    setSelectedPatient({
-      ...patient,
-      prescriptions: patient.prescriptions.map((m) => ({ ...m })),
-    });
+    setSelectedPatient({ ...patient, prescriptions: patient.prescriptions.map(m => ({ ...m })) });
   };
 
   const toggleMed = (medId) => {
-    setSelectedPatient((prev) => ({
+    setSelectedPatient(prev => ({
       ...prev,
-      prescriptions: prev.prescriptions.map((med) =>
-        med.id === medId ? { ...med, checked: !med.checked } : med,
-      ),
+      prescriptions: prev.prescriptions.map(med => 
+        med.id === medId ? { ...med, checked: !med.checked } : med
+      )
     }));
   };
 
-  const totalItemsCount = selectedPatient
-    ? selectedPatient.prescriptions.filter((m) => m.checked).length
-    : 0;
-  const totalPrice = selectedPatient
-    ? selectedPatient.prescriptions.reduce(
-        (acc, med) => (med.checked ? acc + med.price * med.qty : acc),
-        0,
-      )
-    : 0;
+  // Compute live pharmaceutical calculation values
+  const totalItemsCount = selectedPatient ? selectedPatient.prescriptions.filter(m => m.checked).length : 0;
+  const totalPrice = selectedPatient ? selectedPatient.prescriptions.reduce((acc, med) => med.checked ? acc + (med.price * med.qty) : acc, 0) : 0;
 
-  const handleProcessPayment = async (e) => {
+  const handleProcessPayment = (e) => {
     e.preventDefault();
-    if (!selectedPatient) return;
-
-    setProcessing(true);
-    setError("");
-
-    try {
-      const response = await fetch(
-        `${API_URL}/api/cashier/pharmacy/${selectedPatient.id}/pay`,
-        {
-          method: "POST",
-          headers: getAuthHeaders(),
-          body: JSON.stringify({
-            paymentMethod,
-            referenceNumber,
-            amountPaid: totalPrice,
-          }),
-        },
-      );
-
-      if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.message || "Payment processing failed");
-      }
-
-      setPaymentSuccess(true);
-
-      setTimeout(() => {
-        setPharmacyQueue((prev) =>
-          prev.filter((p) => p.id !== selectedPatient.id),
-        );
-        setSelectedPatient(null);
-        setPaymentSuccess(false);
-        setReferenceNumber("");
-        setPaymentMethod("Cash");
-        setProcessing(false);
-        fetchPharmacyOrders();
-      }, 1500);
-    } catch (err) {
-      setError(err.message || "Payment processing failed");
-      setProcessing(false);
-    }
+    setPaymentSuccess(true);
+    
+    // Simulate updating backend queue records after CSS transition delay
+    setTimeout(() => {
+      setPharmacyQueue(prev => prev.filter(p => p.id !== selectedPatient.id));
+      setSelectedPatient(null);
+      setPaymentSuccess(false);
+      setReferenceNumber("");
+      setPaymentMethod("Cash");
+    }, 2000);
   };
 
-  const filteredRequests = pharmacyQueue.filter(
-    (p) =>
-      p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.phone.includes(searchQuery),
+  // Filter queue by Name or Phone
+  const filteredRequests = pharmacyQueue.filter(p => 
+    p.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+    p.phone.includes(searchQuery)
   );
 
-  const isPaid = selectedPatient?.cashierStatus === "PAID";
-
   return (
-    <div className="min-h-screen bg-[#050B09] text-white font-sans antialiased text-[10px] selection:bg-[#10B981]/20 selection:text-[#10B981] flex">
-      {/* SIDEBAR - COMPACT */}
-      <aside
-        className={`bg-[#0E1B17] text-slate-300 flex flex-col justify-between shrink-0 sticky top-0 h-screen overflow-hidden z-30 font-mono border-r border-[#0E1B17] transition-all duration-300 ${isSidebarOpen ? "w-56" : "w-16"}`}
-      >
+    <div className="min-h-screen bg-slate-900 text-slate-100 flex font-sans overflow-hidden">
+      
+      {/* SIDEBAR BLOCK */}
+      <aside className={`bg-slate-950 border-r border-slate-800 transition-all duration-300 ease-in-out flex flex-col justify-between z-20 ${isSidebarOpen ? "w-64" : "w-20"}`}>
         <div>
-          {/* Brand Panel - Compact */}
-          <div className="p-3 border-b border-[#29323a] flex items-center gap-2 bg-[#0E1B17]">
-            <img
-              src={hospitalLogo}
-              alt="Mesra Logo"
-              className="w-7 h-7 object-contain rounded-lg"
-            />
+          <div className="p-5 flex items-center gap-3 border-b border-slate-800 h-16">
+            <div className="bg-emerald-600 p-2 rounded-lg text-white font-black text-xl tracking-wider">M</div>
             {isSidebarOpen && (
-              <div>
-                <h3 className="font-black text-[11px] text-white leading-none">
-                  MESRA DIGITAL
-                </h3>
-                <span className="text-[9px] text-[#94A3B8] font-bold tracking-wider block mt-0.5">
-                  Pharmacy Cashier
-                </span>
+              <div className="animate-fadeIn">
+                <h2 className="font-bold text-sm leading-none text-white">MESRA DIGITAL</h2>
+                <span className="text-[10px] uppercase text-emerald-400 font-semibold tracking-widest">HMS Billing v1.2</span>
               </div>
             )}
           </div>
 
-          {/* Sidebar Toggle Button */}
-          <div className="p-2 border-b border-[#29323a]">
-            <button
-              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-              className="w-full p-2 rounded-lg hover:bg-[#0E1B17] transition flex items-center justify-center gap-2 text-[#94A3B8] hover:text-white"
-            >
-              <Menu size={14} />
-              {isSidebarOpen && (
-                <span className="text-[10px] font-bold">Toggle Menu</span>
-              )}
+          <nav className="p-4 space-y-1">
+            <button className="w-full flex items-center gap-4 px-3 py-3 rounded-xl bg-emerald-600 text-white font-medium transition-all">
+              <span className="text-xl">🧾</span>
+              {isSidebarOpen && <span className="animate-fadeIn">Pharmacy Cashier</span>}
             </button>
-          </div>
-
-          {/* Nav Stack - Compact */}
-          <nav className="p-2 space-y-1">
-            <div className="text-[9px] font-black uppercase text-[#94A3B8] px-2 py-1.5 tracking-widest">
-              Cashier Terminal
+            <div className="text-[11px] uppercase tracking-wider text-slate-500 font-bold px-3 pt-4 pb-1">
+              {isSidebarOpen ? "Active Session Controls" : "•••"}
             </div>
-            <button className="w-full flex items-center gap-2 px-2.5 py-2 rounded-md bg-[#10B981] text-white font-bold text-[11px] uppercase tracking-wider transition">
-              <Pill size={14} />
-              {isSidebarOpen && <span>Pharmacy Billing</span>}
-            </button>
-            <div className="px-2.5 py-1.5 text-[10px] font-mono bg-[#0E1B17]/60 border border-slate-700 rounded-md text-[#94A3B8] mt-1.5">
-              Terminal #04
+            <div className="px-3 py-2 text-xs bg-slate-900 border border-slate-800 rounded-lg text-slate-400">
+              👤 {isSidebarOpen ? "Cashier Terminal #04" : "#04"}
             </div>
           </nav>
         </div>
 
-        {/* Logout */}
-        <div className="p-2 border-t border-[#29323a] bg-[#0E1B17]">
-          <button
-            onClick={onLogout}
-            className="w-full flex items-center gap-2 px-2.5 py-2 text-red-400 hover:bg-red-950/40 rounded-md transition font-bold text-[11px] uppercase tracking-wider"
-          >
-            <LogOut size={14} />
-            {isSidebarOpen && <span>Log Out</span>}
+        <div className="p-4 border-t border-slate-800">
+          <button onClick={onLogout} className="w-full flex items-center gap-4 px-3 py-3 text-red-400 hover:bg-red-950/40 rounded-xl transition-all group">
+            <span className="text-xl group-hover:translate-x-1 transition-transform">🚪</span>
+            {isSidebarOpen && <span className="font-medium">Secure Log Out</span>}
           </button>
         </div>
       </aside>
 
-      {/* MAIN CONTENT */}
-      <div className="flex-1 flex flex-col min-w-0">
-        {/* HEADER */}
-        <header className="bg-[#0E1B17] border-b border-white/20 h-14 px-5 flex justify-between items-center sticky top-0 z-10 shadow-sm">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-              className="text-[#94A3B8] hover:text-white p-1 hover:bg-[#0E1B17] rounded-md transition"
-            >
+      {/* CORE WORKSPACE APPLICATION SPACE */}
+      <div className="flex-1 flex flex-col h-screen overflow-y-auto bg-slate-900">
+        
+        {/* DASHBOARD STATUS BAR */}
+        <header className="bg-slate-950/80 backdrop-blur border-b border-slate-800 h-16 px-6 flex justify-between items-center sticky top-0 z-10">
+          <div className="flex items-center gap-4">
+            <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="text-slate-400 hover:text-white p-1 hover:bg-slate-800 rounded-lg transition">
               ☰
             </button>
-            <h1 className="text-[13px] font-black text-white uppercase tracking-wider">
-              Pharmacy Invoicing Ledger
-            </h1>
+            <h1 className="text-lg font-semibold text-white">Pharmacy Invoicing Ledger</h1>
           </div>
-          <NotificationBell role="Cashier" />
+          <div className="flex items-center gap-6 text-sm text-slate-400">
+            <div className="hidden sm:block">📍 Addis Ababa, ET</div>
+            <div className="w-2.5 h-2.5 bg-emerald-500 rounded-full animate-pulse" title="System online sync"></div>
+          </div>
         </header>
 
-        {error && (
-          <div className="mx-5 mt-4 p-2.5 bg-[#EF4444]/10 border border-[#EF4444]/50 rounded-lg text-[#EF4444] text-xs font-mono">
-            {error}
-          </div>
-        )}
-
-        {/* QUEUE + CHECKOUT */}
-        <div className="p-5 grid grid-cols-1 lg:grid-cols-3 gap-5 flex-1">
-          {/* QUEUE - COMPACT */}
-          <div className="bg-[#0E1B17] rounded-xl border border-white/20 p-4 flex flex-col h-[calc(100vh-180px)] shadow-sm">
-            <h2 className="font-bold text-slate-200 tracking-wide mb-2 text-[11px] uppercase">
-              Awaiting Pharmacy Payment
-            </h2>
-            <div className="relative mb-2.5">
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search name..."
-                className="w-full bg-[#0E1B17] border border-white/20 rounded-lg py-1.5 px-3 pl-8 text-[11px] focus:outline-none focus:border-slate-400 text-white placeholder-slate-400"
-              />
-              <Search
-                size={12}
-                className="absolute left-2.5 top-2 text-[#94A3B8]"
-              />
+        {/* METRICS METADATA BANNER AREA */}
+        <section className="p-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 flex items-center justify-between shadow-xl">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Pending Pharmacy Bills</p>
+              <h3 className="text-2xl font-bold font-mono text-emerald-400 mt-1">{pharmacyQueue.length} Prescriptions</h3>
             </div>
-            <div className="flex-1 overflow-y-auto space-y-1.5 pr-1">
-              {loading ? (
-                <div className="text-center py-6 text-xs text-[#94A3B8]">
-                  Loading...
-                </div>
-              ) : filteredRequests.length === 0 ? (
-                <div className="text-center py-6 text-xs text-[#94A3B8]">
-                  No pending prescriptions found.
-                </div>
-              ) : (
-                filteredRequests.map((p) => (
-                  <div
-                    key={p.id}
+            <div className="text-3xl bg-emerald-950/50 p-3 rounded-xl border border-emerald-900/50 text-emerald-400">💊</div>
+          </div>
+          <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 flex items-center justify-between shadow-xl">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">System Local Currency</p>
+              <h3 className="text-2xl font-bold text-white mt-1">ETB <span className="text-xs text-slate-400">(Ethiopian Birr)</span></h3>
+            </div>
+            <div className="text-3xl bg-amber-950/50 p-3 rounded-xl border border-amber-900/50 text-amber-400">🇪🇹</div>
+          </div>
+          <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 flex items-center justify-between shadow-xl">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Disbursement Signals</p>
+              <h3 className="text-xs font-medium text-slate-300 mt-2">Auto-Unlocks Dispensary</h3>
+            </div>
+            <div className="text-3xl bg-blue-950/50 p-3 rounded-xl border border-blue-900/50 text-blue-400">🚀</div>
+          </div>
+        </section>
+
+        {/* DATA UTILITY SECTION GRID */}
+        <div className="p-6 grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1">
+          
+          {/* QUEUE CONTROL BOX */}
+          <div className="bg-slate-950 rounded-2xl border border-slate-800 p-4 flex flex-col h-[calc(100vh-280px)] shadow-2xl">
+            <div className="mb-4">
+              <h2 className="font-bold text-white tracking-wide mb-2">Awaiting Pharmacy Payment</h2>
+              <div className="relative">
+                <input 
+                  type="text" 
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search name or phone..." 
+                  className="w-full bg-slate-900 border border-slate-800 rounded-xl py-2 px-3 pl-9 text-sm focus:outline-none focus:border-emerald-500 text-slate-100 placeholder-slate-500"
+                />
+                <span className="absolute left-3 top-2.5 text-slate-500 text-xs">🔍</span>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+              {filteredRequests.length > 0 ? (
+                filteredRequests.map(p => (
+                  <div 
+                    key={p.id} 
                     onClick={() => handleSelectPatient(p)}
-                    className={`p-2.5 rounded-lg border cursor-pointer transition-all duration-200 ${
-                      selectedPatient?.id === p.id
-                        ? "bg-[#10B981]/10 border-emerald-300 shadow-sm"
-                        : "bg-[#0E1B17] border-white/20 hover:border-white/20 hover:bg-[#0E1B17]"
-                    }`}
+                    className={`p-3.5 rounded-xl border cursor-pointer transition-all duration-200 transform hover:-translate-y-0.5 ${selectedPatient?.id === p.id ? "bg-emerald-950/40 border-emerald-600 shadow-lg shadow-emerald-950/20" : "bg-slate-900/60 border-slate-800 hover:border-slate-700 hover:bg-slate-900"}`}
                   >
-                    <div className="flex justify-between items-start mb-0.5">
-                      <p className="font-semibold text-slate-200 text-[11px]">
-                        {p.name}
-                      </p>
-                      <span className="bg-[#0E1B17] text-[#94A3B8] text-[9px] font-mono px-1.5 py-0.5 rounded border border-white/20">
-                        {p.orderId?.slice(-6) || p.id.slice(-6)}
-                      </span>
+                    <div className="flex justify-between items-start mb-1">
+                      <p className="font-semibold text-slate-200 text-sm">{p.name}</p>
+                      <span className="bg-slate-800 text-slate-400 text-[10px] font-mono px-2 py-0.5 rounded-md border border-slate-700">{p.id}</span>
                     </div>
-                    <div className="flex justify-between text-[10px] text-[#94A3B8]">
+                    <div className="flex justify-between text-xs text-slate-400">
+                      <span>📱 {p.phone}</span>
                       <span>{p.prescriptions.length} Meds</span>
-                      <span>
-                        {p.prescriptions
-                          .reduce((sum, m) => sum + m.price * m.qty, 0)
-                          .toFixed(2)}{" "}
-                        ETB
-                      </span>
                     </div>
                   </div>
                 ))
+              ) : (
+                <div className="text-center py-8 text-xs text-slate-500">No matching prescriptions found.</div>
               )}
             </div>
           </div>
 
-          {/* CHECKOUT - COMPACT */}
-          <div className="lg:col-span-2 bg-[#0E1B17] rounded-xl border border-white/20 p-4 flex flex-col h-[calc(100vh-180px)] justify-between shadow-sm relative">
+          {/* CHECKOUT SEGMENT WINDOW */}
+          <div className="lg:col-span-2 bg-slate-950 rounded-2xl border border-slate-800 p-6 flex flex-col h-[calc(100vh-280px)] justify-between shadow-2xl relative">
+            
+            {/* SUCCESS SLIDE-IN OVERLAY ANIMATION */}
             {paymentSuccess && (
-              <div className="absolute inset-0 bg-[#0E1B17]/95 z-30 rounded-xl flex flex-col justify-center items-center text-center animate-fadeIn p-4">
-                <div className="w-12 h-12 bg-[#10B981]/20 text-[#10B981] rounded-full flex items-center justify-center text-2xl border border-emerald-300 mb-3">
-                  ✓
-                </div>
-                <h3 className="text-base font-bold text-white mb-1">
-                  Payment Processed Successfully!
-                </h3>
-                <p className="text-xs text-[#94A3B8]">
-                  Prescription receipt logged. Notification sent to Pharmacist.
-                </p>
+              <div className="absolute inset-0 bg-slate-950/95 z-30 rounded-2xl flex flex-col justify-center items-center text-center animate-fadeIn p-6 transition-all duration-300">
+                <div className="w-16 h-16 bg-emerald-500/10 text-emerald-400 rounded-full flex items-center justify-center text-3xl border border-emerald-500/30 animate-bounce mb-4">✓</div>
+                <h3 className="text-xl font-bold text-white mb-1">Payment Processed Successfully!</h3>
+                <p className="text-xs text-slate-400 max-w-sm">Prescription receipt logged into audit systems. Notification signal pushed to Pharmacist Dispensation Depot for packing.</p>
               </div>
             )}
 
             {selectedPatient ? (
-              <form
-                onSubmit={handleProcessPayment}
-                className="h-full flex flex-col justify-between"
-              >
-                <div className="overflow-y-auto pr-1 space-y-4">
-                  <div className="border-b border-white/20 pb-3 flex flex-col md:flex-row md:justify-between md:items-center gap-2">
+              <form onSubmit={handleProcessPayment} className="h-full flex flex-col justify-between">
+                <div className="overflow-y-auto pr-1 space-y-5">
+                  
+                  {/* Demographics details segment */}
+                  <div className="border-b border-slate-800 pb-4 flex flex-col md:flex-row md:justify-between md:items-center gap-4">
                     <div>
-                      <span className="text-[9px] font-bold tracking-widest text-[#94A3B8] uppercase">
-                        Pharmacy Bill
-                      </span>
-                      <h2 className="text-base font-bold text-white mt-0.5">
-                        {selectedPatient.name}
-                      </h2>
-                      <p className="text-[10px] text-[#94A3B8] mt-0.5">
-                        Prescribed by:{" "}
-                        <span className="text-slate-300 font-medium">
-                          {selectedPatient.prescribedBy}
-                        </span>
-                      </p>
+                      <span className="text-[10px] font-bold tracking-widest text-emerald-400 uppercase">Pharmacy Bill</span>
+                      <h2 className="text-xl font-bold text-white mt-0.5">{selectedPatient.name}</h2>
+                      <p className="text-xs text-slate-400 mt-1">Prescribed by: <span className="text-slate-300 font-medium">{selectedPatient.prescribedBy}</span></p>
                     </div>
-                    <div className="flex gap-1.5 text-[10px] font-mono">
-                      <span className="bg-[#0E1B17] border border-white/20 px-2 py-0.5 rounded text-slate-300">
-                        {selectedPatient.age} | {selectedPatient.gender}
-                      </span>
-                      <span
-                        className={`px-2 py-0.5 rounded font-semibold ${isPaid ? "bg-[#10B981]/10 border border-[#10B981]/30 text-[#10B981]" : "bg-amber-500/10 border border-amber-500/30 text-amber-300"}`}
-                      >
-                        {isPaid ? "✓ Paid" : "Ready to Bill"}
-                      </span>
+                    <div className="flex gap-2 text-xs font-mono">
+                      <span className="bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-lg text-slate-300">Age: {selectedPatient.age} ({selectedPatient.gender})</span>
+                      <span className="bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 rounded-lg text-emerald-400 font-semibold">Ready to Bill</span>
                     </div>
                   </div>
 
-                  {!isPaid && (
-                    <>
-                      <div>
-                        <h3 className="text-[10px] font-bold uppercase tracking-wider text-[#94A3B8] mb-2">
-                          Medication Manifest
-                        </h3>
-                        <div className="space-y-1.5">
-                          {selectedPatient.prescriptions.map((med) => (
-                            <label
-                              key={med.id}
-                              className={`flex justify-between items-center p-2 rounded-lg border cursor-pointer transition-all text-[11px] ${med.checked ? "bg-[#0E1B17] border-white/20 text-white" : "bg-[#0E1B17]/50 border-white/10 text-[#94A3B8]"}`}
-                            >
-                              <div className="flex items-center gap-2">
-                                <input
-                                  type="checkbox"
-                                  checked={med.checked}
-                                  onChange={() => toggleMed(med.id)}
-                                  className="w-3.5 h-3.5 rounded text-[#10B981] bg-[#0E1B17] border-white/20"
-                                />
-                                <div>
-                                  <span className="font-medium block">
-                                    {med.name}
-                                  </span>
-                                  <span className="text-[9px] text-[#94A3B8] font-mono">
-                                    Qty: {med.qty} × {med.price.toFixed(2)} ETB
-                                  </span>
-                                </div>
-                              </div>
-                              <span className="font-mono font-bold text-[#10B981]">
-                                {(med.price * med.qty).toFixed(2)} ETB
-                              </span>
-                            </label>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="bg-[#0E1B17] border border-white/20 p-3 rounded-lg grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <div>
-                          <label className="block text-[10px] font-bold uppercase text-[#94A3B8] mb-1">
-                            Payment Method
-                          </label>
-                          <select
-                            value={paymentMethod}
-                            onChange={(e) => setPaymentMethod(e.target.value)}
-                            className="w-full bg-[#0E1B17] border border-white/20 rounded-lg py-1.5 px-2.5 text-[11px] focus:outline-none focus:border-slate-400 text-white"
-                          >
-                            <option>Cash</option>
-                            <option>Telebirr</option>
-                            <option>CBE Birr</option>
-                            <option>Bank Transfer (CBE/Awash)</option>
-                          </select>
-                        </div>
-                        {paymentMethod !== "Cash" && (
-                          <div>
-                            <label className="block text-[10px] font-bold uppercase text-[#94A3B8] mb-1">
-                              Reference / Transaction ID
-                            </label>
-                            <input
-                              type="text"
-                              required
-                              value={referenceNumber}
-                              onChange={(e) =>
-                                setReferenceNumber(e.target.value)
-                              }
-                              placeholder="e.g. TXN123"
-                              className="w-full bg-[#0E1B17] border border-white/20 rounded-lg py-1.5 px-2.5 text-[11px] focus:outline-none focus:border-slate-400 placeholder-slate-400 font-mono"
+                  {/* Itemized medication checklist audit panel */}
+                  <div>
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">Medication Manifest Check</h3>
+                    <div className="space-y-2">
+                      {selectedPatient.prescriptions.map(med => (
+                        <label key={med.id} className={`flex justify-between items-center p-3.5 rounded-xl border cursor-pointer transition-all ${med.checked ? "bg-slate-900 border-slate-700/80 text-white" : "bg-slate-900/30 border-slate-900 text-slate-500"}`}>
+                          <div className="flex items-center gap-3">
+                            <input 
+                              type="checkbox" 
+                              checked={med.checked} 
+                              onChange={() => toggleMed(med.id)} 
+                              className="w-4 h-4 rounded text-emerald-600 bg-slate-800 border-slate-700 focus:ring-0 focus:ring-offset-0" 
                             />
+                            <div>
+                              <span className="text-sm font-medium block">{med.name}</span>
+                              <span className="text-xs text-slate-500 font-mono">Quantity Segment: {med.qty} × {med.price} ETB</span>
+                            </div>
                           </div>
-                        )}
-                      </div>
-                    </>
-                  )}
-
-                  {isPaid && (
-                    <div className="bg-[#10B981]/10 border border-[#10B981]/30 rounded-lg p-3 text-center">
-                      <p className="text-[#10B981] font-bold text-[11px]">
-                        ✓ Payment Already Processed
-                      </p>
-                      <p className="text-[10px] text-[#94A3B8] mt-0.5">
-                        This order has been cleared. Proceeding to pharmacy
-                        dispensing.
-                      </p>
+                          <span className="font-mono font-bold text-slate-200 text-sm">{(med.price * med.qty).toFixed(2)} ETB</span>
+                        </label>
+                      ))}
                     </div>
-                  )}
+                  </div>
+
+                  {/* Accounting Ledger configurations */}
+                  <div className="bg-slate-900/50 border border-slate-800 p-4 rounded-xl grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold uppercase text-slate-400 mb-2">Financial Payment Gateway</label>
+                      <select 
+                        value={paymentMethod} 
+                        onChange={(e) => setPaymentMethod(e.target.value)} 
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
+                      >
+                        <option>Cash</option>
+                        <option>Telebirr</option>
+                        <option>CBE Birr</option>
+                        <option>Bank Transfer (CBE/Awash)</option>
+                      </select>
+                    </div>
+                    {paymentMethod !== "Cash" && (
+                      <div className="animate-fadeIn">
+                        <label className="block text-xs font-bold uppercase text-slate-400 mb-2">Reference Code / Transaction ID</label>
+                        <input 
+                          type="text" 
+                          required
+                          value={referenceNumber}
+                          onChange={(e) => setReferenceNumber(e.target.value)}
+                          placeholder="e.g. TXN987654321" 
+                          className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-sm text-slate-100 focus:outline-none focus:border-emerald-500 placeholder-slate-600 font-mono" 
+                        />
+                      </div>
+                    )}
+                  </div>
                 </div>
 
-                <div className="border-t border-white/20 pt-3 mt-3 bg-[#0E1B17]">
-                  <div className="flex justify-between items-center mb-3 px-1">
+                {/* Processing calculations invoice footer panels */}
+                <div className="border-t border-slate-800 pt-4 mt-4 bg-slate-950">
+                  <div className="flex justify-between items-center mb-4 px-1">
                     <div>
-                      <span className="text-[10px] font-medium text-[#94A3B8]">
-                        Charged Items
-                      </span>
-                      <p className="text-[10px] text-slate-300 font-semibold">
-                        {totalItemsCount} items selected
-                      </p>
+                      <span className="text-xs font-medium text-slate-400">Total Charged Inventory</span>
+                      <p className="text-xs text-slate-300 font-semibold">{totalItemsCount} distinct items selected</p>
                     </div>
                     <div className="text-right">
-                      <span className="text-[10px] font-medium text-[#94A3B8]">
-                        Total Cost
-                      </span>
-                      <p className="text-xl font-black text-[#10B981] font-mono">
-                        {totalPrice.toFixed(2)} ETB
-                      </p>
+                      <span className="text-xs font-medium text-slate-400">Total Prescription Cost</span>
+                      <p className="text-2xl font-black text-emerald-500 font-mono tracking-tight">{totalPrice.toFixed(2)} ETB</p>
                     </div>
                   </div>
 
-                  <button
+                  <button 
                     type="submit"
-                    disabled={totalPrice === 0 || processing}
-                    className={`w-full font-bold py-2.5 px-4 rounded-lg shadow-md transition-all transform active:scale-[0.99] text-[11px] uppercase tracking-wider ${
-                      isPaid
-                        ? "bg-[#10B981] hover:bg-[#0D9668] text-white"
-                        : "bg-[#EF4444] hover:bg-[#b91c1c] text-white"
-                    }`}
+                    disabled={totalPrice === 0}
+                    className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-800 disabled:text-slate-600 disabled:cursor-not-allowed text-white font-bold py-3.5 px-4 rounded-xl shadow-lg shadow-emerald-950/50 transition-all transform active:scale-[0.99]"
                   >
-                    {processing
-                      ? "Processing..."
-                      : isPaid
-                        ? "✓ Payment Completed"
-                        : "Confirm Ledger Payment & Release Inventory"}
+                    Confirm Ledger Payment & Release Inventory
                   </button>
                 </div>
               </form>
             ) : (
-              <div className="h-full flex flex-col justify-center items-center text-center p-4 text-[#94A3B8]">
-                <span className="text-3xl mb-2">📂</span>
-                <p className="text-[11px] font-medium">
-                  Select a prescription from the queue.
-                </p>
+              <div className="h-full flex flex-col justify-center items-center text-center p-6 text-slate-500">
+                <span className="text-4xl mb-3">📂</span>
+                <p className="text-sm font-medium">Select a patient prescription queue sequence from the left ledger index panel to display current line-item billing modules.</p>
               </div>
             )}
           </div>

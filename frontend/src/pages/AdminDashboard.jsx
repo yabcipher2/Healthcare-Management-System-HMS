@@ -94,7 +94,7 @@ const AdminDashboard = ({
   const [globalBannerMessage, setGlobalBannerMessage] = useState(null);
   const [activeTab, setActiveTab] = useState("overview");
   const fileInputRef = useRef(null);
-  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+  const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:5000";
 
   const getAuthHeaders = (isJson = true) => {
     const token = localStorage.getItem("token")?.trim();

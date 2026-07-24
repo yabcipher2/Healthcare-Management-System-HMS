@@ -86,7 +86,13 @@ router.post("/change-password", protectRoute, async (req, res) => {
 
 // @route   POST /api/auth/login (Public Access)
 router.post("/login", async (req, res) => {
-  const { email, password } = req.body;
+  const { email, password } = req.body || {};
+  if (!email || !password) {
+    return res
+      .status(400)
+      .json({ success: false, message: "Email and password are required." });
+  }
+
   try {
     const user = await User.findOne({ email });
     if (user && (await user.matchPassword(password))) {
