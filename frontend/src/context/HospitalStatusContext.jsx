@@ -2,7 +2,10 @@ import { createContext, useContext, useState, useEffect } from "react";
 
 export const HospitalStatusContext = createContext();
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+// Use Vite's /api proxy during local development. This also works when the
+// frontend is opened from another device on the local network, where that
+// device's "localhost" would not be this backend.
+const API_URL = import.meta.env.VITE_API_URL || "";
 
 export const HospitalStatusProvider = ({ children }) => {
   const [status, setStatus] = useState("open");

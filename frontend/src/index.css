@@ -16,10 +16,23 @@
     50% { transform: scale(1.03); opacity: 0.9; }
   }
 
+  @keyframes slideDown {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
   /* Define the utilities */
   --animation-fade-in-up: fadeInUp 0.8s ease-out forwards;
   --animation-pop-in: popIn 0.6s cubic-bezier(0.26, 0.53, 0.74, 1.48) forwards;
   --animation-pulse-slow: pulseSlow 4s ease-in-out infinite;
+  --animation-slide-down: slideDown 0.3s ease-out forwards;
+
+  /* HMS Color System */
+  --color-primary-base: #050B09;
+  --color-card-bg: #0E1B17;
+  --color-neon-green: #10B981;
+  --color-emergency: #EF4444;
+  --color-muted-sage: #94A3B8;
 }
 
 /* FORCE VISIBILITY: 
@@ -35,13 +48,7 @@
   animation: pulseSlow 4s ease-in-out infinite;
 }
 
-  /* ... keep your other keyframes ... */
-  @theme {
-  @keyframes slideDown {
-    from { opacity: 0; transform: translateY(-10px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-
-  --animation-slide-down: slideDown 0.3s ease-out forwards;
+.animate-slide-down {
+  animation: slideDown 0.3s ease-out forwards;
 }
 

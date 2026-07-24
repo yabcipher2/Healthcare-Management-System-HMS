@@ -1,5 +1,9 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
-import { logAudit, fetchAuditLogs, fetchAuditAlertsCount } from "../utils/audit";
+import {
+  logAudit,
+  fetchAuditLogs,
+  fetchAuditAlertsCount,
+} from "../utils/audit";
 import {
   LineChart,
   Line,
@@ -14,6 +18,7 @@ import {
   ShieldCheck,
   LayoutDashboard,
   Settings,
+  Menu,
   UserCog,
   LogOut,
   Phone,
@@ -38,6 +43,7 @@ import {
   Stethoscope,
   Store,
   AlertCircle,
+  CheckCircle,
   CheckCircle2,
   Flame,
   HeartPulse,
@@ -53,10 +59,11 @@ import {
   ArrowLeft,
   Check,
 } from "lucide-react";
+import NotificationBell from "../components/NotificationBell";
 
 // Palette for chart slices (reused cyclically for categories)
 const COLORS = [
-  "#2563EB",
+  "#10B981",
   "#10B981",
   "#F59E0B",
   "#EF4444",
@@ -83,6 +90,8 @@ const AdminDashboard = ({
   navigateTo,
 }) => {
   const isAdmin = user?.role === "Administrator";
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [globalBannerMessage, setGlobalBannerMessage] = useState(null);
   const [activeTab, setActiveTab] = useState("overview");
   const fileInputRef = useRef(null);
   const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:5000";
@@ -95,24 +104,29 @@ const AdminDashboard = ({
     return headers;
   };
 
+  const triggerSystemBanner = useCallback((msg) => {
+    setGlobalBannerMessage(msg);
+    setTimeout(() => setGlobalBannerMessage(null), 3000);
+  }, []);
+
   const statusInstructions = {
     open: {
       title: "Standard Operations",
       description:
         "Portal access is open to all staff. Continue normal workflows and routine care delivery.",
-      style: "bg-emerald-50 text-emerald-800",
+      style: "bg-[#10B981]/10 text-[#94A3B8]",
     },
     emergency: {
       title: "Emergency Protocol",
       description:
         "Emergency mode is active. Staff should focus on urgent cases only and defer non-critical tasks.",
-      style: "bg-red-50 text-red-800",
+      style: "bg-[#EF4444]/10 text-red-800",
     },
     closed: {
       title: "Maintenance Mode",
       description:
         "Maintenance is engaged. The system is accessible to admin only; staff should follow admin guidance and avoid standard portal use.",
-      style: "bg-amber-50 text-amber-900",
+      style: "bg-amber-500/10 text-amber-300",
     },
   };
 
@@ -125,7 +139,8 @@ const AdminDashboard = ({
   const [mfaEnabled, setMfaEnabled] = useState(true);
   const [systemStatus, setSystemStatus] = useState("open");
 
-  const currentStatusInstruction = statusInstructions[systemStatus] || statusInstructions["open"];
+  const currentStatusInstruction =
+    statusInstructions[systemStatus] || statusInstructions["open"];
 
   useEffect(() => {
     const syncStatus = async () => {
@@ -156,7 +171,11 @@ const AdminDashboard = ({
   const [auditLogSearch, setAuditLogSearch] = useState("");
   const [auditLogModule, setAuditLogModule] = useState("");
   const [auditLogPage, setAuditLogPage] = useState(1);
-  const [auditLogsMeta, setAuditLogsMeta] = useState({ page: 1, pages: 1, total: 0 });
+  const [auditLogsMeta, setAuditLogsMeta] = useState({
+    page: 1,
+    pages: 1,
+    total: 0,
+  });
   const [deptFilter, setDeptFilter] = useState("all");
 
   const loadAuditAlertsCount = useCallback(async () => {
@@ -213,6 +232,13 @@ const AdminDashboard = ({
   const [selectedProfile, setSelectedProfile] = useState({});
   const [isInlineEditing, setIsInlineEditing] = useState(false);
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
+
+  const [isAdminEditing, setIsAdminEditing] = useState(false);
+  const [adminProfile, setAdminProfile] = useState({
+    name: "Head Administrator",
+    email: "admin@mesra.com",
+  });
+
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -294,33 +320,49 @@ const AdminDashboard = ({
     },
   ];
 
-  const staffDepartments = [
-    "General",
-    "General Medicine",
-    "Emergency",
-    "Surgery",
-    "Orthopedics",
-    "Pediatrics",
-    "Obstetrics & Gynecology",
-    "ENT (Otolaryngology)",
-    "Cardiology",
-    "Neurology",
-    "Psychiatry",
-    "Dermatology",
-    "Ophthalmology",
-    "Urology",
-    "Anesthesiology",
-    "Pathology",
-    "Radiology",
-    "Laboratory",
-    "Pharmacy",
-    "Ward / Inpatient",
-    "Triage",
-    "Reception",
-    "Administration",
-    "Physiotherapy",
-    "Nutrition & Dietetics",
-  ];
+  const roleToDepartments = {
+    Doctor: [
+      "General Medicine",
+      "Emergency",
+      "Surgery",
+      "Orthopedics",
+      "Pediatrics",
+      "Obstetrics & Gynecology",
+      "ENT (Otolaryngology)",
+      "Cardiology",
+      "Neurology",
+      "Psychiatry",
+      "Dermatology",
+      "Ophthalmology",
+      "Urology",
+      "Anesthesiology",
+      "Pathology",
+      "Radiology",
+      "Physiotherapy",
+      "Nutrition & Dietetics",
+    ],
+    Nurse: [
+      "General Ward",
+      "Emergency",
+      "ICU",
+      "Pediatrics",
+      "Maternity",
+      "Operating Room",
+      "Outpatient Clinic",
+      "Triage",
+      "Ward / Inpatient",
+    ],
+    Triage: ["Triage"],
+    Receptionist: ["Reception"],
+    Pharmacist: ["Pharmacy"],
+    "Pharmacy Cashier": ["Pharmacy"],
+    Laboratory: ["Laboratory"],
+    "Laboratory Cashier": ["Laboratory"],
+    "Store Manager": ["Store / Logistics"],
+    "Ward Manager": ["Ward / Inpatient"],
+    Radiology: ["Radiology"],
+    Administrator: ["Administration"],
+  };
 
   // --- STAFF STATE (Staff_Directory & Professional Profiles) ---
   const [staffList, setStaffList] = useState([]);
@@ -333,7 +375,7 @@ const AdminDashboard = ({
   const normalizeStaff = (staff) => ({
     ...staff,
     id: staff.id || staff._id,
-    avatarColor: staff.avatarColor || "bg-slate-500",
+    avatarColor: staff.avatarColor || "bg-[#10B981]",
   });
 
   const normalizePatient = (patient) => ({
@@ -346,7 +388,7 @@ const AdminDashboard = ({
     contactInfo: patient.contactInfo || "",
     insuranceProvider: patient.insuranceProvider || "",
     policyNumber: patient.policyNumber || "",
-    avatarColor: patient.avatarColor || "bg-slate-500",
+    avatarColor: patient.avatarColor || "bg-[#10B981]",
   });
 
   const fetchStaffData = useCallback(async () => {
@@ -418,12 +460,16 @@ const AdminDashboard = ({
     emergencyContact: "",
     address: "",
     jobTitle: "Doctor",
-    dept: "General",
+    dept: "General Medicine",
     yearsExp: "",
     qualification: "",
     certNo: "",
     contractStatus: "Active",
   });
+
+  const availableDepartments = roleToDepartments[newStaff.jobTitle] || [
+    "General",
+  ];
 
   // --- PROFILE MANAGEMENT LOGIC HUB ---
   const launchProfileManagement = (targetProfile, type) => {
@@ -470,18 +516,21 @@ const AdminDashboard = ({
 
       setSelectedProfile(updatedProfile);
       setIsInlineEditing(false);
-      alert("Database Synced: Internal modifications committed permanently.");
+      triggerSystemBanner(
+        "SUCCESS: Database Synced. Internal modifications committed permanently.",
+      );
 
       await logAudit({
         action: "UPDATE",
         module: managementTargetType === "staff" ? "Staff" : "Patient",
         targetId: updatedProfile.id,
-        targetType: managementTargetType === "staff" ? "StaffProfile" : "PatientRecord",
+        targetType:
+          managementTargetType === "staff" ? "StaffProfile" : "PatientRecord",
         details: `Updated profile for ${updatedProfile.name || updatedProfile.id}`,
       });
       loadAuditAlertsCount();
     } catch (error) {
-      alert(`Save failed: ${error.message}`);
+      triggerSystemBanner(`ERROR: Save failed: ${error.message}`);
     }
   };
 
@@ -538,19 +587,20 @@ const AdminDashboard = ({
         action: auditAction,
         module: auditModule,
         targetId: updated.id,
-        targetType: managementTargetType === "staff" ? "StaffProfile" : "PatientRecord",
+        targetType:
+          managementTargetType === "staff" ? "StaffProfile" : "PatientRecord",
         details: `Status changed to ${targetNewStatus} for ${updated.name || updated.id}`,
       });
       loadAuditAlertsCount();
     } catch (error) {
-      alert(`Status update failed: ${error.message}`);
+      triggerSystemBanner(`ERROR: Status update failed: ${error.message}`);
     }
   };
 
   const triggerTelemetryRefresh = () => {
     setLastSyncTime(new Date().toLocaleTimeString());
     setSystemHealth((95 + Math.random() * 5).toFixed(1) + "%");
-    alert(`System Core Sync Executed Successfully.`);
+    triggerSystemBanner("SUCCESS: System Core Sync Executed Successfully.");
   };
 
   const handleLogoChange = (e) => {
@@ -582,23 +632,31 @@ const AdminDashboard = ({
       });
       loadAuditAlertsCount();
     } catch (err) {
-      alert(`Status sync failed: ${err.message}`);
+      triggerSystemBanner(`ERROR: Status sync failed: ${err.message}`);
     }
   };
 
   const getRandomAvatarColor = () => {
     const colors = [
-      "bg-blue-600",
-      "bg-rose-500",
-      "bg-emerald-600",
-      "bg-purple-600",
-      "bg-slate-500",
+      "bg-[#10B981]",
+      "bg-[#EF4444]",
+      "bg-[#10B981]",
+      "bg-[#10B981]",
+      "bg-[#10B981]",
     ];
     return colors[Math.floor(Math.random() * colors.length)];
   };
 
   const handleRegisterSave = async (e) => {
     e.preventDefault();
+    const dobYear = new Date(newStaff.dob).getFullYear();
+    if (dobYear > 2005) {
+      alert(
+        "Validation Error: Staff members must have a birth year of 2005 or earlier.",
+      );
+      return;
+    }
+
     const nextIdNumber = staffList.length + 101;
     const createdStaff = {
       id: `S-${nextIdNumber}`,
@@ -656,7 +714,7 @@ const AdminDashboard = ({
         emergencyContact: "",
         address: "",
         jobTitle: "Doctor",
-        dept: "General",
+        dept: "General Medicine",
         yearsExp: "",
         qualification: "",
         certNo: "",
@@ -664,7 +722,7 @@ const AdminDashboard = ({
       });
       setCurrentPage(1);
     } catch (error) {
-      alert(`Create staff failed: ${error.message}`);
+      triggerSystemBanner(`ERROR: Create staff failed: ${error.message}`);
     }
   };
 
@@ -759,27 +817,69 @@ const AdminDashboard = ({
   );
 
   return (
-    <div className="flex min-h-screen bg-[#F8FAFC] font-sans text-slate-900">
+    <div className="flex min-h-screen bg-[#050B09] text-white font-sans antialiased text-[10px] selection:bg-[#10B981]/30 selection:text-[#10B981]">
+      {globalBannerMessage && (
+        <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-[100] w-11/12 max-w-2xl bg-[#0E1B17] border-l-4 border-[#10B981] text-[#10B981] px-4 py-2.5 rounded-lg shadow-2xl font-mono flex items-center justify-between animate-slideDown">
+          <div className="flex items-center gap-2 font-bold uppercase tracking-wider">
+            <CheckCircle size={14} className="shrink-0 text-[#10B981]" />
+            <span>{globalBannerMessage}</span>
+          </div>
+          <button
+            onClick={() => setGlobalBannerMessage(null)}
+            className="hover:text-white transition p-0.5"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
       <style>{`
         .custom-scrollbar::-webkit-scrollbar { width: 6px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 10px; }
       `}</style>
 
-      {/* SIDEBAR */}
-      <aside className="w-64 bg-white border-r border-slate-200 flex flex-col fixed h-full z-50">
-        <div className="p-5">
-          <div className="flex items-center gap-3 mb-8">
-            <img
-              src={hospitalLogo}
-              alt="Mesra Logo"
-              className="w-8 h-8 object-contain rounded-lg"
-            />
-            <span className="text-xl font-black italic uppercase text-blue-600">
-              Mesra
-            </span>
+      {/* CORPORATE SIDEBAR NAVIGATION - BLUE BLACK THEME */}
+      <aside
+        className={`${isSidebarOpen ? "w-56" : "w-16"} bg-[#0E1B17] text-slate-300 flex flex-col justify-between shrink-0 fixed top-0 h-screen overflow-hidden z-50 font-mono border-r border-[#0E1B17] transition-all duration-300`}
+      >
+        <div>
+          <div className="p-4 border-b border-[#29323a] flex items-center gap-2.5 bg-[#0E1B17]">
+            <div className="w-8 h-8 rounded-lg bg-[#10B981] flex items-center justify-center border border-[#10B981]/20 shadow-md">
+              <img
+                src={hospitalLogo}
+                alt="Mesra Logo"
+                className="w-full h-full object-contain"
+              />
+            </div>
+            <div>
+              <h3 className="font-black tracking-wider text-[12px] text-white leading-none">
+                MESRA<span className="text-[#10B981]">DIGITAL</span>
+              </h3>
+              <span className="text-[8px] text-[#94A3B8] font-bold tracking-widest block mt-0.5 uppercase">
+                Admin Master Node
+              </span>
+            </div>
           </div>
-          <nav className="space-y-1">
+
+          {/* Sidebar Toggle Button */}
+          <div className="p-2 border-b border-[#29323a]">
+            <button
+              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+              className="w-full p-2 rounded-lg hover:bg-[#0E1B17] transition flex items-center justify-center gap-2 text-[#94A3B8] hover:text-white"
+            >
+              <Menu size={14} />
+              {isSidebarOpen && (
+                <span className="text-[10px] font-bold">Toggle Menu</span>
+              )}
+            </button>
+          </div>
+
+          <nav className="p-3 space-y-1">
+            <div className="text-[8px] font-black uppercase text-[#94A3B8] px-3 py-2 tracking-widest">
+              Interface Channels
+            </div>
+
             <NavItem
               icon={<LayoutDashboard size={18} />}
               label="Dashboard"
@@ -829,91 +929,120 @@ const AdminDashboard = ({
             />
           </nav>
         </div>
-        <button
-          onClick={() => {
-            window.location.href = "/";
-          }}
-          className="w-full flex items-center justify-center gap-2 mx-2 mb-2 px-3 py-2 bg-blue-600/10 hover:bg-blue-600 border border-blue-500/30 hover:border-blue-500 text-blue-400 hover:text-white text-[11px] font-bold uppercase tracking-wider rounded-lg transition-all"
-        >
-          <Activity size={13} /> Public
-        </button>
-        <button
-          onClick={onLogout}
-          className="mx-4 mb-4 flex items-center justify-center gap-2 p-3 text-red-500 font-black text-[11px] uppercase tracking-widest hover:bg-red-50 rounded-xl transition-all cursor-pointer"
-        >
-          <LogOut size={15} /> Logout
-        </button>
-      </aside>
-        <main className="flex-1 md:ml-64 p-4 md:p-6">
-         {isManagementActive ? (
-           <div className="animate-fade-in-up space-y-4 max-w-4xl mx-auto">
-             {/* Nav Header Row */}
-             <div className="flex flex-wrap justify-between items-center gap-3 border-b pb-3 border-slate-100">
-               <button
-                 onClick={() => setIsManagementActive(false)}
-                 className="flex items-center gap-2 text-slate-400 hover:text-slate-900 font-black text-xs uppercase tracking-widest transition-colors cursor-pointer"
-               >
-                 <ArrowLeft size={16} /> Back
-               </button>
-               <div className="flex flex-wrap gap-2">
-                 {isInlineEditing ? (
-                   <button
-                     onClick={saveInlineProfileChanges}
-                     className="bg-emerald-600 text-white px-4 py-2 rounded-lg font-black text-[11px] uppercase tracking-widest flex items-center gap-2 hover:bg-emerald-700 cursor-pointer shadow-md"
-                   >
-                     <Check size={12} /> Save
-                   </button>
-                 ) : (
-                   <button
-                     onClick={() => setIsInlineEditing(true)}
-                     className="bg-slate-900 text-white px-4 py-2 rounded-lg font-black text-[11px] uppercase tracking-widest flex items-center gap-2 hover:bg-black cursor-pointer shadow-md"
-                   >
-                     <Edit size={12} /> Edit
-                   </button>
-                 )}
-                 <button
-                   onClick={toggleStatusActivation}
-                   disabled={!selectedProfile}
-                   className={`px-4 py-2 rounded-lg font-black text-[11px] uppercase tracking-widest shadow-md transition-all ${!selectedProfile ? "opacity-50 cursor-not-allowed bg-slate-100 text-slate-400" : (managementTargetType === "staff" ? selectedProfile?.contractStatus === "Active" : selectedProfile?.status !== "Archived") ? "bg-red-50 text-red-600 hover:bg-red-100" : "bg-emerald-50 text-emerald-600 hover:bg-emerald-100"}`}
-                 >
-                   {managementTargetType === "staff"
-                     ? selectedProfile?.contractStatus === "Active"
-                       ? "Inactivate"
-                       : "Activate"
-                     : selectedProfile?.status !== "Archived"
-                       ? "Archive"
-                       : "Restore"}
-                 </button>
-               </div>
-             </div>
 
-             {/* Dossier Card Sheet Layout */}
-             <div className="bg-white rounded-2xl border border-slate-100 p-4 md:p-6 shadow-sm grid md:grid-cols-3 gap-4 md:gap-6">
-               <div className="text-center md:border-r border-slate-50 md:pr-6 flex flex-col justify-center">
-                 <div
-                   className={`w-24 h-24 md:w-28 md:h-28 ${selectedProfile?.avatarColor || "bg-blue-600"} rounded-2xl flex items-center justify-center text-white text-4xl font-black mx-auto mb-3 shadow-lg border-4 border-white`}
-                 >
-                   {selectedProfile?.name ? selectedProfile.name[0] : ""}
-                 </div>
-                 <h2 className="text-lg font-black text-slate-900">
-                   {selectedProfile?.name || "—"}
-                 </h2>
-                 <p className="text-[11px] font-bold text-blue-500 uppercase mt-1 tracking-wider">
-                   ID: {selectedProfile?.id || "—"}
-                 </p>
-                 <div className="mt-3">
-                   <span
-                     className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${(managementTargetType === "staff" ? selectedProfile?.contractStatus === "Active" : selectedProfile?.status !== "Archived") ? "bg-emerald-100 text-emerald-600" : "bg-slate-100 text-slate-500"}`}
-                   >
-                     {managementTargetType === "staff"
-                       ? selectedProfile?.contractStatus || "—"
-                       : selectedProfile?.status || "—"}
-                   </span>
-                 </div>
-               </div>
+        <div className="p-4 border-t border-[#29323a] bg-[#0E1B17] space-y-4">
+          <div className="bg-[#0E1B17] rounded-lg p-2.5 border border-[#0E1B17] text-[10px]">
+            <div className="flex items-center gap-1.5 text-[#10B981] font-bold uppercase tracking-wide mb-1">
+              <User size={12} /> <span>Operator Account</span>
+            </div>
+            <p className="text-white truncate font-bold text-[10px]">
+              System Admin
+            </p>
+            <p className="text-[#94A3B8] truncate text-[9px] mt-0.5 uppercase">
+              Authority Node
+            </p>
+          </div>
+
+          <button
+            onClick={() => {
+              window.location.href = "/";
+            }}
+            className="w-full py-2 bg-[#0E1B17] hover:bg-[#0E1B17] border border-[#0E1B17] text-[#10B981] font-bold uppercase text-[8px] tracking-wider rounded-lg transition flex items-center justify-center gap-1.5"
+          >
+            <Activity size={13} /> Public Facing Site
+          </button>
+
+          <button
+            onClick={onLogout}
+            className="w-full py-2 bg-[#EF4444]/40 hover:bg-[#b91c1c] border border-[#EF4444]/30 text-[#EF4444] font-bold uppercase text-[8px] tracking-wider rounded-lg transition flex items-center justify-center gap-1.5"
+          >
+            <LogOut size={13} /> Terminate Token Session
+          </button>
+        </div>
+      </aside>
+
+      <main
+        className={`flex-1 ${isSidebarOpen ? "md:ml-56" : "md:ml-16"} p-4 transition-all duration-300`}
+      >
+        <header className="mb-4 flex items-center gap-4">
+          <button
+            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+            className="p-1.5 hover:bg-[#0E1B17] rounded-lg transition-colors text-[#94A3B8]"
+          >
+            <Menu size={18} />
+          </button>
+          <NotificationBell role="Admin" />
+        </header>
+
+        {isManagementActive ? (
+          <div className="animate-fade-in-up space-y-4 max-w-4xl mx-auto">
+            {/* Nav Header Row */}
+            <div className="flex flex-wrap justify-between items-center gap-3 border-b pb-3 border-white/10">
+              <button
+                onClick={() => setIsManagementActive(false)}
+                className="flex items-center gap-2 text-[#94A3B8] hover:text-white font-black text-xs uppercase tracking-widest transition-colors cursor-pointer"
+              >
+                <ArrowLeft size={16} /> Back
+              </button>
+              <div className="flex flex-wrap gap-2">
+                {isInlineEditing ? (
+                  <button
+                    onClick={saveInlineProfileChanges}
+                    className="bg-[#10B981] text-white px-4 py-2 rounded-lg font-black text-[11px] uppercase tracking-widest flex items-center gap-2 hover:bg-[#0D9668] cursor-pointer shadow-md"
+                  >
+                    <Check size={12} /> Save
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => setIsInlineEditing(true)}
+                    className="bg-[#050B09] text-white px-4 py-2 rounded-lg font-black text-[11px] uppercase tracking-widest flex items-center gap-2 hover:bg-black cursor-pointer shadow-md"
+                  >
+                    <Edit size={12} /> Edit
+                  </button>
+                )}
+                <button
+                  onClick={toggleStatusActivation}
+                  disabled={!selectedProfile}
+                  className={`px-4 py-2 rounded-lg font-black text-[11px] uppercase tracking-widest shadow-md transition-all ${!selectedProfile ? "opacity-50 cursor-not-allowed bg-[#0E1B17] text-[#94A3B8]" : (managementTargetType === "staff" ? selectedProfile?.contractStatus === "Active" : selectedProfile?.status !== "Archived") ? "bg-[#EF4444]/10 text-[#EF4444] hover:bg-red-100" : "bg-[#10B981]/10 text-[#10B981] hover:bg-[#10B981]/20"}`}
+                >
+                  {managementTargetType === "staff"
+                    ? selectedProfile?.contractStatus === "Active"
+                      ? "Inactivate"
+                      : "Activate"
+                    : selectedProfile?.status !== "Archived"
+                      ? "Archive"
+                      : "Restore"}
+                </button>
+              </div>
+            </div>
+
+            {/* Dossier Card Sheet Layout */}
+            <div className="bg-[#0E1B17] rounded-2xl border border-white/10 p-4 shadow-sm grid md:grid-cols-3 gap-4">
+              <div className="text-center md:border-r border-white/10 md:pr-6 flex flex-col justify-center">
+                <div
+                  className={`w-24 h-24 md:w-28 md:h-28 ${selectedProfile?.avatarColor || "bg-[#10B981]"} rounded-2xl flex items-center justify-center text-white text-4xl font-black mx-auto mb-3 shadow-lg border-4 border-white/20`}
+                >
+                  {selectedProfile?.name ? selectedProfile.name[0] : ""}
+                </div>
+                <h2 className="text-lg font-black text-white">
+                  {selectedProfile?.name || "—"}
+                </h2>
+                <p className="text-[11px] font-bold text-[#10B981] uppercase mt-1 tracking-wider">
+                  ID: {selectedProfile?.id || "—"}
+                </p>
+                <div className="mt-3">
+                  <span
+                    className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${(managementTargetType === "staff" ? selectedProfile?.contractStatus === "Active" : selectedProfile?.status !== "Archived") ? "bg-[#10B981]/20 text-[#10B981]" : "bg-[#0E1B17] text-[#94A3B8]"}`}
+                  >
+                    {managementTargetType === "staff"
+                      ? selectedProfile?.contractStatus || "—"
+                      : selectedProfile?.status || "—"}
+                  </span>
+                </div>
+              </div>
 
               <div className="md:col-span-2 space-y-6">
-                <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 border-b pb-1">
+                <h3 className="text-xs font-black uppercase tracking-widest text-[#94A3B8] border-b pb-1">
                   Relational Database Metadata Dossier
                 </h3>
                 <div className="grid grid-cols-2 gap-x-6 gap-y-4">
@@ -1101,23 +1230,23 @@ const AdminDashboard = ({
             {/* TAB 1: OVERVIEW HUB */}
             {activeTab === "overview" && (
               <div className="space-y-8 animate-fade-in-up">
-                {/* Banners */}
-                {systemStatus === "emergency" && (
-                  <div className="bg-red-500 text-white font-black uppercase text-xs tracking-widest p-4 rounded-2xl flex items-center gap-3 animate-pulse">
-                    <Flame size={18} /> Critical Alert: System running on
+                {systemStatus === "emergency" /* Emergency Banner */ && (
+                  <div className="bg-[#EF4444] text-white font-black uppercase text-xs tracking-widest p-4 rounded-2xl flex items-center gap-3 animate-pulse">
+                    <Flame size={14} /> Critical Alert: System running on
                     Emergency Protocol mode. High-Risk Triage routing active.
                   </div>
                 )}
-                {systemStatus === "closed" && (
-                  <div className="bg-amber-500 text-slate-900 font-black uppercase text-xs tracking-widest p-4 rounded-2xl flex items-center gap-3">
-                    <AlertCircle size={18} /> Notice: Infrastructure Maintenance
+
+                {systemStatus === "closed" /* Maintenance Banner */ && (
+                  <div className="bg-amber-500 text-white font-black uppercase text-xs tracking-widest p-4 rounded-2xl flex items-center gap-3">
+                    <AlertCircle size={14} /> Notice: Infrastructure Maintenance
                     Window Engaged. Public portal lines disconnected.
                   </div>
                 )}
 
-                <header className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm flex flex-col md:flex-row justify-between items-center gap-6">
+                <header className="bg-[#0E1B17] p-5 rounded-[2.5rem] border border-white/10 shadow-sm flex flex-col md:flex-row justify-between items-center gap-4">
                   <div className="flex items-center gap-6">
-                    <div className="w-20 h-20 bg-blue-600 rounded-3xl overflow-hidden flex items-center justify-center text-white text-3xl font-black">
+                    <div className="w-20 h-20 bg-[#10B981] rounded-3xl overflow-hidden flex items-center justify-center text-white text-3xl font-black">
                       {hospitalLogo === "/mesra icon.png" ? (
                         hospitalName[0]
                       ) : (
@@ -1129,32 +1258,32 @@ const AdminDashboard = ({
                       )}
                     </div>
                     <div>
-                      <h1 className="text-3xl font-black text-slate-900">
+                      <h1 className="text-2xl font-black text-white">
                         {hospitalName}
                       </h1>
-                      <div className="flex flex-wrap gap-4 mt-2 items-center text-slate-400 text-xs font-bold">
-                        <span className="bg-blue-50 px-3 py-1 rounded-lg text-blue-600 uppercase">
+                      <div className="flex flex-wrap gap-3 mt-1 items-center text-[#94A3B8] text-[9px] font-bold">
+                        <span className="bg-[#10B981]/10 px-3 py-1 rounded-lg text-[#10B981] uppercase">
                           Head Administrator
                         </span>
                         <span className="flex items-center gap-1">
-                          <Phone size={12} className="text-blue-500" />{" "}
+                          <Phone size={12} className="text-[#10B981]" />{" "}
                           {adminPhone}
                         </span>
                         <span className="flex items-center gap-1">
-                          <MapPin size={12} className="text-blue-500" />{" "}
+                          <MapPin size={12} className="text-[#10B981]" />{" "}
                           {locationName}
                         </span>
                       </div>
                     </div>
                   </div>
 
-                  <div className="bg-slate-50 p-2.5 rounded-2xl border border-slate-100 flex gap-1.5">
+                  <div className="bg-[#0E1B17] p-2.5 rounded-2xl border border-white/10 flex gap-1.5">
                     <StatusButton
                       current={systemStatus}
                       type="open"
                       onClick={() => handleStatusChange("open")}
                       label="Open"
-                      activeColor="bg-emerald-500 text-white"
+                      activeColor="bg-[#10B981] text-white"
                       icon={<CheckCircle2 size={14} />}
                     />
                     <StatusButton
@@ -1162,7 +1291,7 @@ const AdminDashboard = ({
                       type="emergency"
                       onClick={() => handleStatusChange("emergency")}
                       label="Emergency"
-                      activeColor="bg-red-500 text-white"
+                      activeColor="bg-[#EF4444] text-white"
                       icon={<Flame size={14} />}
                     />
                     <StatusButton
@@ -1170,14 +1299,14 @@ const AdminDashboard = ({
                       type="closed"
                       onClick={() => handleStatusChange("closed")}
                       label="Maintenance"
-                      activeColor="bg-amber-500 text-slate-900"
+                      activeColor="bg-amber-500 text-white"
                       icon={<AlertCircle size={14} />}
                     />
                   </div>
                 </header>
 
                 <div
-                  className={`bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm mt-6 ${currentStatusInstruction.style}`}
+                  className={`bg-[#0E1B17] p-6 rounded-[2.5rem] border border-white/10 shadow-sm mt-6 ${currentStatusInstruction.style}`}
                 >
                   <div className="flex items-center gap-3 mb-3">
                     <span className="text-xs font-black uppercase tracking-widest">
@@ -1194,34 +1323,34 @@ const AdminDashboard = ({
                     label="Total Staff"
                     value={staffList.length}
                     color="#3B82F6"
-                    bgColor="bg-blue-50/50"
+                    bgColor="bg-[#10B981]/10/50"
                     onAnchorAction={() => setActiveTab("staff")}
                   />
                   <StatCardGraph
                     label="System Health"
                     value={systemHealth}
                     color="#F59E0B"
-                    bgColor="bg-amber-50/50"
+                    bgColor="bg-amber-500/10"
                     onAnchorAction={() => setActiveTab("settings")}
                   />
                   <StatCardGraph
                     label="Audit Alerts"
                     value={auditAlertsCount}
                     color="#EF4444"
-                    bgColor="bg-rose-50/50"
+                    bgColor="bg-[#EF4444]/10/50"
                     onAnchorAction={() => setActiveTab("audit")}
                   />
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                  <div className="lg:col-span-2 bg-white p-10 rounded-[3rem] border border-slate-100 shadow-sm">
+                  <div className="lg:col-span-2 bg-[#0E1B17] p-10 rounded-[3rem] border border-white/10 shadow-sm">
                     <div className="flex justify-between items-center mb-6">
                       <h3 className="text-xl font-black">
                         Department Dashboards
                       </h3>
                       <button
                         onClick={handleDeptToggle}
-                        className="text-xs bg-slate-50 px-4 py-2 rounded-xl text-slate-500 font-black uppercase tracking-wider border border-slate-100 cursor-pointer"
+                        className="text-xs bg-[#0E1B17] px-4 py-2 rounded-xl text-[#94A3B8] font-black uppercase tracking-wider border border-white/10 cursor-pointer"
                       >
                         Toggle Filter
                       </button>
@@ -1240,8 +1369,8 @@ const AdminDashboard = ({
                     </div>
                   </div>
 
-                  <div className="bg-white p-10 rounded-[3rem] border border-slate-100 shadow-sm flex flex-col justify-between items-center text-center h-full min-h-[400px]">
-                    <h3 className="text-sm font-black uppercase text-slate-400 tracking-widest w-full">
+                  <div className="bg-[#0E1B17] p-10 rounded-[3rem] border border-white/10 shadow-sm flex flex-col justify-between items-center text-center h-full min-h-[400px]">
+                    <h3 className="text-sm font-black uppercase text-[#94A3B8] tracking-widest w-full">
                       Patient Distribution
                     </h3>
                     <div className="h-64 w-full flex items-center justify-center">
@@ -1267,18 +1396,18 @@ const AdminDashboard = ({
                         </ResponsiveContainer>
                       ) : (
                         <div className="flex items-center justify-center h-full">
-                          <div className="text-sm text-slate-400 font-bold">
+                          <div className="text-sm text-[#94A3B8] font-bold">
                             No patient distribution data available
                           </div>
                         </div>
                       )}
                     </div>
                     {distributionDataComputed.length > 0 && (
-                      <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-left mt-6 w-full px-4 border-t pt-6 border-slate-50">
+                      <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-left mt-6 w-full px-4 border-t pt-6 border-white/10">
                         {distributionDataComputed.map((d, i) => (
                           <div
                             key={i}
-                            className="flex items-center gap-2 text-xs font-bold text-slate-600"
+                            className="flex items-center gap-2 text-xs font-bold text-slate-300"
                           >
                             <div
                               className="w-2.5 h-2.5 rounded-full"
@@ -1303,23 +1432,23 @@ const AdminDashboard = ({
               <div className="animate-fade-in-up space-y-6">
                 <div className="flex justify-between items-end">
                   <div>
-                    <h1 className="text-4xl font-black text-slate-900 italic">
+                    <h1 className="text-4xl font-black text-white italic">
                       Staff Management
                     </h1>
-                    <p className="text-slate-400 font-medium mt-1">
+                    <p className="text-[#94A3B8] font-medium mt-1">
                       Total Profiles: {staffList.length}
                     </p>
                   </div>
                   <button
                     onClick={() => setIsRegModalOpen(true)}
-                    className="bg-blue-600 text-white px-6 py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg flex items-center gap-2 hover:bg-blue-700 cursor-pointer"
+                    className="bg-[#10B981] text-white px-6 py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg flex items-center gap-2 hover:bg-[#0D9668] cursor-pointer"
                   >
                     <Plus size={18} /> Register Profile
                   </button>
                 </div>
 
-                <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden">
-                  <div className="p-6 border-b border-slate-50 flex items-center gap-4 bg-slate-50/30">
+                <div className="bg-[#0E1B17] rounded-xl border border-white/10 shadow-sm overflow-hidden">
+                  <div className="p-6 border-b border-white/10 flex items-center gap-4 bg-[#0E1B17]/30">
                     <Search className="text-slate-300" size={20} />
                     <input
                       type="text"
@@ -1335,59 +1464,59 @@ const AdminDashboard = ({
                   <div className="overflow-x-auto">
                     <table className="w-full text-left min-w-[1000px]">
                       <thead>
-                        <tr className="text-[10px] font-black uppercase text-slate-400 border-b tracking-widest p-6">
-                          <th className="p-6">Staff Profile</th>
-                          <th className="p-6">Title & Dept</th>
-                          <th className="p-6">Contact Line</th>
-                          <th className="p-6">Contract Status</th>
-                          <th className="p-6 text-right">Actions</th>
+                        <tr className="text-[9px] font-black uppercase text-[#94A3B8] border-b tracking-widest bg-[#0E1B17]/50">
+                          <th className="p-2 px-4">Staff Profile</th>
+                          <th className="p-2 px-4">Title & Dept</th>
+                          <th className="p-2 px-4">Contact Line</th>
+                          <th className="p-2 px-4">Contract Status</th>
+                          <th className="p-2 px-4 text-right">Actions</th>
                         </tr>
                       </thead>
-                      <tbody className="text-sm font-bold text-slate-600">
+                      <tbody className="text-sm font-bold text-slate-300">
                         {currentPaginatedItems.map((staff) => (
                           <tr
                             key={staff.id}
-                            className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors"
+                            className="border-b border-white/10 hover:bg-[#0E1B17]/50 transition-colors"
                           >
-                            <td className="p-6 flex items-center gap-4">
+                            <td className="p-1 px-4 flex items-center gap-3">
                               <div
                                 className={`w-10 h-10 rounded-xl ${staff.avatarColor} text-white font-black flex items-center justify-center text-xs shadow-sm`}
                               >
                                 {staff.name[0]}
                               </div>
                               <div>
-                                <span className="text-slate-900 block font-black">
+                                <span className="text-white block font-black">
                                   {staff.name}
                                 </span>
-                                <span className="text-[10px] text-blue-600 font-bold uppercase tracking-wider">
+                                <span className="text-[10px] text-[#10B981] font-bold uppercase tracking-wider">
                                   {staff.id}
                                 </span>
                               </div>
                             </td>
-                            <td className="p-6">
-                              <span className="text-slate-800 block text-xs uppercase">
+                            <td className="p-1 px-4">
+                              <span className="text-white block text-xs uppercase">
                                 {staff.jobTitle}
                               </span>
-                              <span className="text-[10px] text-slate-400 block font-normal">
+                              <span className="text-[9px] text-[#94A3B8] block font-normal">
                                 {staff.dept}
                               </span>
                             </td>
-                            <td className="p-6 font-mono text-xs text-slate-500">
+                            <td className="p-1 px-4 font-mono text-xs text-[#94A3B8]">
                               {staff.phone}
                             </td>
-                            <td className="p-6">
+                            <td className="p-1 px-4">
                               <span
-                                className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${staff.contractStatus === "Active" ? "bg-emerald-100 text-emerald-600" : "bg-slate-100 text-slate-500"}`}
+                                className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${staff.contractStatus === "Active" ? "bg-[#10B981]/20 text-[#10B981]" : "bg-[#0E1B17] text-[#94A3B8]"}`}
                               >
                                 {staff.contractStatus}
                               </span>
                             </td>
-                            <td className="p-6 text-right">
+                            <td className="p-1 px-6 text-right">
                               <button
                                 onClick={() =>
                                   launchProfileManagement(staff, "staff")
                                 }
-                                className="px-4 py-2 bg-slate-50 border border-slate-100 text-slate-600 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 hover:bg-blue-600 hover:text-white ml-auto transition-all cursor-pointer shadow-sm"
+                                className="px-4 py-2 bg-[#0E1B17] border border-white/10 text-slate-300 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 hover:bg-[#10B981] hover:text-white ml-auto transition-all cursor-pointer shadow-sm"
                               >
                                 <Eye size={12} /> Manage Profile
                               </button>
@@ -1411,16 +1540,16 @@ const AdminDashboard = ({
             {activeTab === "patients" && (
               <div className="animate-fade-in-up space-y-6">
                 <div>
-                  <h1 className="text-4xl font-black text-slate-900 italic">
+                  <h1 className="text-4xl font-black text-white italic">
                     Patient Registry
                   </h1>
-                  <p className="text-slate-400 font-medium mt-1">
+                  <p className="text-[#94A3B8] font-medium mt-1">
                     Total Active Records: {patientsList.length}
                   </p>
                 </div>
 
-                <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden">
-                  <div className="p-6 border-b border-slate-50 flex items-center gap-4 bg-slate-50/30">
+                <div className="bg-[#0E1B17] rounded-xl border border-white/10 shadow-sm overflow-hidden">
+                  <div className="p-6 border-b border-white/10 flex items-center gap-4 bg-[#0E1B17]/30">
                     <Search className="text-slate-300" size={20} />
                     <input
                       type="text"
@@ -1436,7 +1565,7 @@ const AdminDashboard = ({
                   <div className="overflow-x-auto">
                     <table className="w-full text-left min-w-[1000px]">
                       <thead>
-                        <tr className="text-[10px] font-black uppercase text-slate-400 border-b tracking-widest">
+                        <tr className="text-[10px] font-black uppercase text-[#94A3B8] border-b tracking-widest">
                           <th className="p-6">Patient Profile</th>
                           <th className="p-6">Contact Line</th>
                           <th className="p-6">Registration Date</th>
@@ -1445,11 +1574,11 @@ const AdminDashboard = ({
                           <th className="p-6 text-right">Actions</th>
                         </tr>
                       </thead>
-                      <tbody className="text-sm font-bold text-slate-600">
+                      <tbody className="text-sm font-bold text-slate-300">
                         {currentPaginatedItems.map((patient) => (
                           <tr
                             key={patient.id}
-                            className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors"
+                            className="border-b border-white/10 hover:bg-[#0E1B17]/50 transition-colors"
                           >
                             <td className="p-6 flex items-center gap-4">
                               <div
@@ -1458,18 +1587,18 @@ const AdminDashboard = ({
                                 {patient.name[0]}
                               </div>
                               <div>
-                                <span className="text-slate-900 block font-black">
+                                <span className="text-white block font-black">
                                   {patient.name}
                                 </span>
-                                <span className="text-[10px] text-emerald-600 font-bold uppercase tracking-wider">
+                                <span className="text-[10px] text-[#10B981] font-bold uppercase tracking-wider">
                                   {patient.id}
                                 </span>
                               </div>
                             </td>
-                            <td className="p-6 font-mono text-xs text-slate-500">
+                            <td className="p-6 font-mono text-xs text-[#94A3B8]">
                               {patient.contactInfo}
                             </td>
-                            <td className="p-6 font-mono text-xs text-slate-400">
+                            <td className="p-6 font-mono text-xs text-[#94A3B8]">
                               {patient.regDate}
                             </td>
                             <td className="p-6 text-xs uppercase opacity-80">
@@ -1477,7 +1606,7 @@ const AdminDashboard = ({
                             </td>
                             <td className="p-6">
                               <span
-                                className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${patient.status === "Admitted" ? "bg-blue-100 text-blue-600" : patient.status === "Triage Queue" ? "bg-amber-100 text-amber-600" : "bg-slate-100 text-slate-500"}`}
+                                className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${patient.status === "Admitted" ? "bg-[#10B981]/10 text-[#10B981]" : patient.status === "Triage Queue" ? "bg-amber-500/20 text-amber-300" : "bg-[#0E1B17] text-[#94A3B8]"}`}
                               >
                                 {patient.status}
                               </span>
@@ -1487,7 +1616,7 @@ const AdminDashboard = ({
                                 onClick={() =>
                                   launchProfileManagement(patient, "patient")
                                 }
-                                className="px-4 py-2 bg-slate-50 border border-slate-100 text-slate-600 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 hover:bg-blue-600 hover:text-white ml-auto transition-all cursor-pointer shadow-sm"
+                                className="px-4 py-2 bg-[#0E1B17] border border-white/10 text-slate-300 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 hover:bg-[#10B981] hover:text-white ml-auto transition-all cursor-pointer shadow-sm"
                               >
                                 <Eye size={12} /> Manage Dossier
                               </button>
@@ -1510,22 +1639,22 @@ const AdminDashboard = ({
             {/* TAB 4: PROFILE */}
             {activeTab === "profile" && (
               <div className="max-w-4xl mx-auto animate-fade-in-up">
-                <h1 className="text-4xl font-black text-slate-900 italic mb-8">
+                <h1 className="text-4xl font-black text-white italic mb-8">
                   Admin Identity
                 </h1>
                 <div className="grid md:grid-cols-3 gap-8">
-                  <div className="bg-white p-8 rounded-[3rem] border border-slate-100 shadow-sm text-center">
-                    <div className="w-32 h-32 bg-blue-600 rounded-[2.5rem] flex items-center justify-center text-white text-5xl font-black mx-auto mb-6 shadow-xl shadow-blue-100">
+                  <div className="bg-[#0E1B17] p-8 rounded-[3rem] border border-white/10 shadow-sm text-center">
+                    <div className="w-32 h-32 bg-[#10B981] rounded-[2.5rem] flex items-center justify-center text-white text-5xl font-black mx-auto mb-6 shadow-xl shadow-[#10B981]/20">
                       M
                     </div>
-                    <h3 className="text-xl font-black text-slate-900">
+                    <h3 className="text-xl font-black text-white">
                       Admin Account
                     </h3>
-                    <p className="text-xs font-black text-blue-500 uppercase tracking-widest mt-2">
+                    <p className="text-xs font-black text-[#10B981] uppercase tracking-widest mt-2">
                       Level 1 Authority
                     </p>
                   </div>
-                  <div className="md:col-span-2 bg-white p-10 rounded-[3rem] border border-slate-100 shadow-sm space-y-6">
+                  <div className="md:col-span-2 bg-[#0E1B17] p-10 rounded-[3rem] border border-white/10 shadow-sm space-y-6">
                     <ProfileField
                       label="Full Name"
                       value="Head Administrator"
@@ -1545,17 +1674,17 @@ const AdminDashboard = ({
               <div className="animate-fade-in-up space-y-6">
                 <div className="flex justify-between items-end">
                   <div>
-                    <h1 className="text-4xl font-black text-slate-900 italic">
+                    <h1 className="text-4xl font-black text-white italic">
                       Audit Logs
                     </h1>
-                    <p className="text-slate-400 font-medium mt-1">
+                    <p className="text-[#94A3B8] font-medium mt-1">
                       System-wide change history
                     </p>
                   </div>
                 </div>
 
-                <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden">
-                  <div className="p-6 border-b border-slate-50 flex items-center gap-4 bg-slate-50/30">
+                <div className="bg-[#0E1B17] rounded-[2.5rem] border border-white/10 shadow-sm overflow-hidden">
+                  <div className="p-6 border-b border-white/10 flex items-center gap-4 bg-[#0E1B17]/30">
                     <Search className="text-slate-300" size={20} />
                     <input
                       type="text"
@@ -1570,58 +1699,62 @@ const AdminDashboard = ({
                   </div>
 
                   {auditLogsLoading ? (
-                    <div className="p-8 text-center text-xs font-black text-slate-400 uppercase tracking-widest">
+                    <div className="p-8 text-center text-xs font-black text-[#94A3B8] uppercase tracking-widest">
                       Loading audit logs...
                     </div>
                   ) : auditLogsError ? (
-                    <div className="p-8 text-center text-xs font-black text-red-600 uppercase tracking-widest">
+                    <div className="p-8 text-center text-xs font-black text-[#EF4444] uppercase tracking-widest">
                       {auditLogsError}
                     </div>
                   ) : auditLogs.length === 0 ? (
-                    <div className="p-8 text-center text-xs font-black text-slate-400 uppercase tracking-widest">
+                    <div className="p-8 text-center text-xs font-black text-[#94A3B8] uppercase tracking-widest">
                       No audit logs found
                     </div>
                   ) : (
                     <div className="overflow-x-auto">
                       <table className="w-full text-left min-w-[1000px]">
                         <thead>
-                          <tr className="text-[10px] font-black uppercase text-slate-400 border-b tracking-widest p-6">
-                            <th className="p-6">Action</th>
-                            <th className="p-6">Module</th>
-                            <th className="p-6">User</th>
-                            <th className="p-6">Target</th>
-                            <th className="p-6">Department</th>
-                            <th className="p-6">Details</th>
+                          <tr className="text-[9px] font-black uppercase text-[#94A3B8] border-b tracking-widest bg-[#0E1B17]/50">
+                            <th className="p-2 px-6">Action</th>
+                            <th className="p-2 px-6">Module</th>
+                            <th className="p-2 px-6">User</th>
+                            <th className="p-2 px-6">Target</th>
+                            <th className="p-2 px-6">Department</th>
+                            <th className="p-2 px-6">Details</th>
                           </tr>
                         </thead>
-                        <tbody className="text-sm font-bold text-slate-600">
+                        <tbody className="text-sm font-bold text-slate-300">
                           {auditLogs.map((log) => (
                             <tr
                               key={log._id}
-                              className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors"
+                              className="border-b border-white/10 hover:bg-[#0E1B17]/50 transition-colors"
                             >
-                              <td className="p-6">
-                                <span className="text-slate-900 block font-black">
+                              <td className="p-1 px-6">
+                                <span className="text-white block font-black">
                                   {log.action}
                                 </span>
-                                <span className="text-[10px] text-slate-400 font-mono block">
+                                <span className="text-[10px] text-[#94A3B8] font-mono block">
                                   {new Date(log.createdAt).toLocaleString()}
                                 </span>
                               </td>
-                              <td className="p-6 text-slate-800 text-xs uppercase">{log.module}</td>
-                              <td className="p-6">
-                                <span className="text-slate-900 block">{log.userName}</span>
-                                <span className="text-[10px] text-slate-400 block font-normal">
+                              <td className="p-1 px-6 text-white text-[10px] uppercase">
+                                {log.module}
+                              </td>
+                              <td className="p-1 px-6">
+                                <span className="text-white block">
+                                  {log.userName}
+                                </span>
+                                <span className="text-[9px] text-[#94A3B8] block font-normal">
                                   {log.userRole}
                                 </span>
                               </td>
-                              <td className="p-6 text-slate-500 text-xs font-mono">
+                              <td className="p-1 px-6 text-[#94A3B8] text-[10px] font-mono">
                                 {log.targetId || "—"}
                               </td>
-                              <td className="p-6 text-slate-500 text-xs uppercase">
+                              <td className="p-1 px-6 text-[#94A3B8] text-[10px] uppercase">
                                 {log.department || "—"}
                               </td>
-                              <td className="p-6 text-slate-500 text-xs max-w-[320px] truncate">
+                              <td className="p-1 px-6 text-[#94A3B8] text-[10px] max-w-[320px] truncate">
                                 {log.details || "—"}
                               </td>
                             </tr>
@@ -1631,16 +1764,19 @@ const AdminDashboard = ({
                     </div>
                   )}
 
-                  <div className="p-4 border-t border-slate-50 flex justify-between items-center">
-                    <span className="text-[10px] text-slate-400 font-black uppercase tracking-wider">
-                      Page {auditLogsMeta.page} of {auditLogsMeta.pages} • Total {auditLogsMeta.total}
+                  <div className="p-4 border-t border-white/10 flex justify-between items-center">
+                    <span className="text-[10px] text-[#94A3B8] font-black uppercase tracking-wider">
+                      Page {auditLogsMeta.page} of {auditLogsMeta.pages} • Total{" "}
+                      {auditLogsMeta.total}
                     </span>
                     <div className="flex gap-2">
                       <button
                         type="button"
-                        onClick={() => setAuditLogPage((p) => Math.max(1, p - 1))}
+                        onClick={() =>
+                          setAuditLogPage((p) => Math.max(1, p - 1))
+                        }
                         disabled={auditLogsMeta.page <= 1}
-                        className="px-4 py-2 bg-slate-50 border border-slate-100 text-slate-600 rounded-xl text-xs font-black uppercase tracking-wider hover:bg-slate-100 disabled:opacity-50"
+                        className="px-4 py-2 bg-[#0E1B17] border border-white/10 text-slate-300 rounded-xl text-xs font-black uppercase tracking-wider hover:bg-[#0E1B17] disabled:opacity-50"
                       >
                         Prev
                       </button>
@@ -1648,7 +1784,7 @@ const AdminDashboard = ({
                         type="button"
                         onClick={() => setAuditLogPage((p) => p + 1)}
                         disabled={auditLogsMeta.page >= auditLogsMeta.pages}
-                        className="px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-black uppercase tracking-wider hover:bg-slate-800 disabled:opacity-50"
+                        className="px-4 py-2 bg-[#050B09] text-white rounded-xl text-xs font-black uppercase tracking-wider hover:bg-[#0E1B17] disabled:opacity-50"
                       >
                         Next
                       </button>
@@ -1661,18 +1797,18 @@ const AdminDashboard = ({
             {/* TAB 5: SETTINGS */}
             {activeTab === "settings" && (
               <div className="max-w-4xl mx-auto animate-fade-in-up space-y-8">
-                <h1 className="text-4xl font-black text-slate-900 italic">
+                <h1 className="text-4xl font-black text-white italic">
                   System Configuration
                 </h1>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm space-y-4">
-                    <h3 className="text-xs font-black uppercase text-slate-400 tracking-widest flex items-center gap-2">
-                      <RefreshCw size={14} className="text-blue-500" /> Hospital
+                  <div className="bg-[#0E1B17] p-8 rounded-[2.5rem] border border-white/10 shadow-sm space-y-4">
+                    <h3 className="text-xs font-black uppercase text-[#94A3B8] tracking-widest flex items-center gap-2">
+                      <RefreshCw size={14} className="text-[#10B981]" /> Hospital
                       Branding
                     </h3>
                     <div
                       onClick={() => fileInputRef.current.click()}
-                      className="p-6 border-2 border-dashed border-slate-200 rounded-[2rem] flex flex-col items-center gap-2 cursor-pointer hover:bg-slate-50 hover:border-blue-500 transition-all group"
+                      className="p-6 border-2 border-dashed border-white/20 rounded-[2rem] flex flex-col items-center gap-2 cursor-pointer hover:bg-[#0E1B17] hover:border-[#10B981] transition-all group"
                     >
                       <input
                         type="file"
@@ -1684,7 +1820,7 @@ const AdminDashboard = ({
                       {hospitalLogo === "/mesra icon.png" ? (
                         <Upload
                           size={18}
-                          className="text-slate-400 group-hover:scale-110 transition-transform"
+                          className="text-[#94A3B8] group-hover:scale-110 transition-transform"
                         />
                       ) : (
                         <img
@@ -1693,39 +1829,39 @@ const AdminDashboard = ({
                           alt="Logo"
                         />
                       )}
-                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-wide">
+                      <p className="text-[10px] font-black text-[#94A3B8] uppercase tracking-wide">
                         Change Active System Logo Asset
                       </p>
                     </div>
                     <div>
-                      <label className="text-[10px] font-black text-slate-400 uppercase ml-1">
+                      <label className="text-[10px] font-black text-[#94A3B8] uppercase ml-1">
                         Entity Name
                       </label>
                       <input
                         type="text"
-                        className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold mt-1 text-xs outline-none focus:border-blue-500"
+                        className="w-full p-3 bg-[#0E1B17] border border-white/10 rounded-xl font-bold mt-1 text-xs outline-none focus:border-[#10B981]"
                         value={hospitalName}
                         onChange={(e) => setHospitalName(e.target.value)}
                       />
                     </div>
                     <div>
-                      <label className="text-[10px] font-black text-slate-400 uppercase ml-1 flex items-center gap-1">
+                      <label className="text-[10px] font-black text-[#94A3B8] uppercase ml-1 flex items-center gap-1">
                         <Mail size={10} /> Central System Email
                       </label>
                       <input
                         type="email"
-                        className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold mt-1 text-xs outline-none focus:border-blue-500"
+                        className="w-full p-3 bg-[#0E1B17] border border-white/10 rounded-xl font-bold mt-1 text-xs outline-none focus:border-[#10B981]"
                         value={hospitalEmail}
                         onChange={(e) => setHospitalEmail(e.target.value)}
                       />
                     </div>
                     <div>
-                      <label className="text-[10px] font-black text-slate-400 uppercase ml-1">
+                      <label className="text-[10px] font-black text-[#94A3B8] uppercase ml-1">
                         Regional Coordinates
                       </label>
                       <input
                         type="text"
-                        className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold mt-1 text-xs outline-none focus:border-blue-500"
+                        className="w-full p-3 bg-[#0E1B17] border border-white/10 rounded-xl font-bold mt-1 text-xs outline-none focus:border-[#10B981]"
                         value={locationName}
                         onChange={(e) => setLocationName(e.target.value)}
                       />
@@ -1733,29 +1869,29 @@ const AdminDashboard = ({
                   </div>
 
                   <div className="space-y-6">
-                    <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm space-y-4">
-                      <h3 className="text-xs font-black uppercase text-slate-400 tracking-widest flex items-center gap-2">
-                        <Server size={14} className="text-blue-500" /> Telemetry
+                    <div className="bg-[#0E1B17] p-8 rounded-[2.5rem] border border-white/10 shadow-sm space-y-4">
+                      <h3 className="text-xs font-black uppercase text-[#94A3B8] tracking-widest flex items-center gap-2">
+                        <Server size={14} className="text-[#10B981]" /> Telemetry
                         Monitor & Health Logs
                       </h3>
                       <div className="grid grid-cols-2 gap-4">
-                        <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
-                          <span className="text-[10px] text-slate-400 font-black uppercase block">
+                        <div className="bg-[#0E1B17] p-4 rounded-xl border border-white/10">
+                          <span className="text-[10px] text-[#94A3B8] font-black uppercase block">
                             Live Node Health
                           </span>
                           <input
                             type="text"
-                            className="text-lg font-black bg-transparent border-none outline-none mt-1 w-full text-blue-600"
+                            className="text-lg font-black bg-transparent border-none outline-none mt-1 w-full text-[#10B981]"
                             value={systemHealth}
                             onChange={(e) => setSystemHealth(e.target.value)}
                           />
                         </div>
-                        <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
-                          <span className="text-[10px] text-slate-400 font-black uppercase block">
+                        <div className="bg-[#0E1B17] p-4 rounded-xl border border-white/10">
+                          <span className="text-[10px] text-[#94A3B8] font-black uppercase block">
                             Active Audit Faults
                           </span>
                           <div className="flex items-center gap-2 mt-1">
-                            <span className="text-lg font-black text-red-500">
+                            <span className="text-lg font-black text-[#EF4444]">
                               {auditAlertsCount}
                             </span>
                           </div>
@@ -1764,101 +1900,32 @@ const AdminDashboard = ({
                       <button
                         type="button"
                         onClick={triggerTelemetryRefresh}
-                        className="w-full py-3.5 bg-slate-900 hover:bg-slate-800 text-white font-black uppercase text-[10px] tracking-widest rounded-xl flex items-center justify-center gap-2 mt-2 cursor-pointer shadow-md"
+                        className="w-full py-3.5 bg-[#050B09] hover:bg-[#0E1B17] text-white font-black uppercase text-[10px] tracking-widest rounded-xl flex items-center justify-center gap-2 mt-2 cursor-pointer shadow-md"
                       >
                         <RefreshCw size={12} /> Run Framework Cache Refresh
                       </button>
-                      <p className="text-center text-[9px] text-slate-400 font-bold uppercase tracking-wider">
+                      <p className="text-center text-[9px] text-[#94A3B8] font-bold uppercase tracking-wider">
                         Last Dashboard Synchronization: {lastSyncTime}
                       </p>
                     </div>
 
-                    <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm space-y-6">
-                      <h3 className="text-xs font-black uppercase text-slate-400 tracking-widest flex items-center gap-2">
-                        <Shield size={14} className="text-blue-500" /> System
-                        Guard Gates
+                    <div className="bg-[#0E1B17] p-8 rounded-[2.5rem] border border-white/10 shadow-sm space-y-4">
+                      <h3 className="text-xs font-black uppercase text-[#94A3B8] tracking-widest flex items-center gap-2">
+                        <Lock size={14} className="text-[#10B981]" /> Credential
+                        Management
                       </h3>
-                      {isAdmin ? (
-                        <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-100">
-                          <div>
-                            <span className="text-xs font-black block">
-                              Maintenance Gate
-                            </span>
-                            <span className="text-[10px] text-slate-400 font-bold block uppercase mt-0.5">
-                              {isMaintenanceMode
-                                ? "Admin-only access while maintenance is active"
-                                : "Open to staff and admin users"}
-                            </span>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const updatedState = !isMaintenanceMode;
-                              setIsMaintenanceMode(updatedState);
-                              setSystemStatus(updatedState ? "closed" : "open");
-                            }}
-                            className={`w-12 h-6 rounded-full transition-colors relative ${isMaintenanceMode ? "bg-amber-500" : "bg-slate-200"}`}
-                          >
-                            <div
-                              className={`w-4 h-4 bg-white rounded-full absolute top-1 transition-all ${isMaintenanceMode ? "right-1" : "left-1"}`}
-                            />
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="flex flex-col gap-2 p-4 bg-slate-50 rounded-xl border border-slate-100">
-                          <div>
-                            <span className="text-xs font-black block">
-                              Maintenance Gate
-                            </span>
-                            <span className="text-[10px] text-slate-400 font-bold block uppercase mt-0.5">
-                              Only administrators may view or change maintenance
-                              mode.
-                            </span>
-                          </div>
-                          <div className="text-[10px] text-slate-500 italic">
-                            Please contact an administrator to enable or disable
-                            maintenance access.
-                          </div>
-                        </div>
-                      )}
-                      <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-100">
-                        <div>
-                          <span className="text-xs font-black block">
-                            Enforce MFA Verification
-                          </span>
-                          <span className="text-[10px] text-slate-400 font-bold block uppercase mt-0.5">
-                            Role-Based Gatekeeper Key
-                          </span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => setMfaEnabled(!mfaEnabled)}
-                          className={`w-12 h-6 rounded-full transition-colors relative cursor-pointer ${mfaEnabled ? "bg-blue-600" : "bg-slate-200"}`}
-                        >
-                          <div
-                            className={`w-4 h-4 bg-white rounded-full absolute top-1 transition-all ${mfaEnabled ? "right-1" : "left-1"}`}
-                          />
-                        </button>
-                      </div>
-
-                      <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm space-y-4">
-                        <h3 className="text-xs font-black uppercase text-slate-400 tracking-widest flex items-center gap-2">
-                          <Lock size={14} className="text-blue-500" />{" "}
-                          Credential Management
-                        </h3>
-                        <p className="text-sm text-slate-500">
-                          Update your administrator password securely. Staff
-                          users can also use the pharmacy dashboard to update
-                          their own password.
-                        </p>
-                        <button
-                          type="button"
-                          onClick={() => setIsChangePasswordOpen(true)}
-                          className="w-full py-4 rounded-2xl bg-blue-600 text-white font-black uppercase tracking-widest hover:bg-blue-700 transition-all"
-                        >
-                          Change Password
-                        </button>
-                      </div>
+                      <p className="text-sm text-[#94A3B8]">
+                        Update your administrator password securely. Staff users
+                        can also use the pharmacy dashboard to update their own
+                        password.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setIsChangePasswordOpen(true)}
+                        className="w-full py-4 rounded-2xl bg-[#10B981] text-white font-black uppercase tracking-widest hover:bg-[#0D9668] transition-all"
+                      >
+                        Change Password
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -1870,62 +1937,62 @@ const AdminDashboard = ({
 
       {/* PASSWORD CHANGE MODAL */}
       {isChangePasswordOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 overflow-y-auto">
-          <div className="bg-white w-full max-w-2xl rounded-[2.5rem] p-8 animate-pop-in border border-slate-100 shadow-2xl relative my-auto">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#050B09]/40 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="bg-[#0E1B17] w-full max-w-2xl rounded-[2.5rem] p-8 animate-pop-in border border-white/10 shadow-2xl relative my-auto">
             <button
               onClick={() => setIsChangePasswordOpen(false)}
-              className="absolute top-6 right-6 text-slate-400 hover:text-red-500"
+              className="absolute top-6 right-6 text-[#94A3B8] hover:text-[#EF4444]"
             >
               <X size={20} />
             </button>
             <h3 className="text-2xl font-black italic mb-2">Change Password</h3>
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-wide mb-6">
+            <p className="text-xs font-bold text-[#94A3B8] uppercase tracking-wide mb-6">
               Use a secure, professional password for your account.
             </p>
 
             {passwordChangeError && (
-              <div className="mb-4 rounded-3xl border border-red-100 bg-red-50 p-4 text-sm text-red-600">
+              <div className="mb-4 rounded-3xl border border-red-100 bg-[#EF4444]/10 p-4 text-sm text-[#EF4444]">
                 {passwordChangeError}
               </div>
             )}
             {passwordChangeSuccess && (
-              <div className="mb-4 rounded-3xl border border-emerald-100 bg-emerald-50 p-4 text-sm text-emerald-700">
+              <div className="mb-4 rounded-3xl border border-[#10B981]/20 bg-[#10B981]/10 p-4 text-sm text-[#10B981]">
                 {passwordChangeSuccess}
               </div>
             )}
 
             <form onSubmit={handleChangePassword} className="space-y-4">
               <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase ml-1">
+                <label className="text-[10px] font-black text-[#94A3B8] uppercase ml-1">
                   Current Password
                 </label>
                 <input
                   type="password"
-                  className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold mt-1 text-xs outline-none"
+                  className="w-full p-3 bg-[#0E1B17] border border-white/10 rounded-xl font-bold mt-1 text-xs outline-none"
                   value={currentPassword}
                   onChange={(e) => setCurrentPassword(e.target.value)}
                   required
                 />
               </div>
               <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase ml-1">
+                <label className="text-[10px] font-black text-[#94A3B8] uppercase ml-1">
                   New Password
                 </label>
                 <input
                   type="password"
-                  className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold mt-1 text-xs outline-none"
+                  className="w-full p-3 bg-[#0E1B17] border border-white/10 rounded-xl font-bold mt-1 text-xs outline-none"
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                   required
                 />
               </div>
               <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase ml-1">
+                <label className="text-[10px] font-black text-[#94A3B8] uppercase ml-1">
                   Confirm New Password
                 </label>
                 <input
                   type="password"
-                  className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold mt-1 text-xs outline-none"
+                  className="w-full p-3 bg-[#0E1B17] border border-white/10 rounded-xl font-bold mt-1 text-xs outline-none"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   required
@@ -1935,14 +2002,14 @@ const AdminDashboard = ({
                 <button
                   type="button"
                   onClick={() => setIsChangePasswordOpen(false)}
-                  className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-xs"
+                  className="flex-1 py-4 bg-[#0E1B17] text-[#94A3B8] rounded-2xl font-black uppercase text-xs"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={passwordChangeLoading}
-                  className="flex-1 py-4 bg-blue-600 text-white rounded-2xl font-black uppercase text-xs shadow-lg shadow-blue-100 disabled:opacity-60"
+                  className="flex-1 py-4 bg-[#10B981] text-white rounded-2xl font-black uppercase text-xs shadow-lg shadow-[#10B981]/20 disabled:opacity-60"
                 >
                   {passwordChangeLoading ? "Saving..." : "Save Password"}
                 </button>
@@ -1954,33 +2021,33 @@ const AdminDashboard = ({
 
       {/* REGISTRATION MODAL */}
       {isRegModalOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 overflow-y-auto">
-          <div className="bg-white w-full max-w-2xl rounded-[2.5rem] p-8 animate-pop-in border border-slate-100 shadow-2xl relative my-auto">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#050B09]/40 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="bg-[#0E1B17] w-full max-w-2xl rounded-[2.5rem] p-8 animate-pop-in border border-white/10 shadow-2xl relative my-auto">
             <button
               onClick={() => setIsRegModalOpen(false)}
-              className="absolute top-6 right-6 text-slate-400 hover:text-red-500"
+              className="absolute top-6 right-6 text-[#94A3B8] hover:text-[#EF4444]"
             >
               <X size={20} />
             </button>
             <h3 className="text-2xl font-black italic mb-2">
               Register Professional Profile
             </h3>
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-wide mb-6">
+            <p className="text-xs font-bold text-[#94A3B8] uppercase tracking-wide mb-6">
               Staff Directory & Operational Profiles Link
             </p>
 
             <form onSubmit={handleRegisterSave} className="space-y-4">
-              <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest border-b pb-1">
+              <p className="text-[10px] font-black text-[#10B981] uppercase tracking-widest border-b pb-1">
                 1. Demographics & Contact (Staff_Directory)
               </p>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase ml-1">
+                  <label className="text-[10px] font-black text-[#94A3B8] uppercase ml-1">
                     Full Name
                   </label>
                   <input
                     type="text"
-                    className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold mt-1 text-xs outline-none"
+                    className="w-full p-3 bg-[#0E1B17] border border-white/10 rounded-xl font-bold mt-1 text-xs outline-none"
                     value={newStaff.name}
                     onChange={(e) =>
                       setNewStaff({ ...newStaff, name: e.target.value })
@@ -1989,12 +2056,12 @@ const AdminDashboard = ({
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase ml-1">
+                  <label className="text-[10px] font-black text-[#94A3B8] uppercase ml-1">
                     National ID
                   </label>
                   <input
                     type="text"
-                    className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold mt-1 text-xs outline-none"
+                    className="w-full p-3 bg-[#0E1B17] border border-white/10 rounded-xl font-bold mt-1 text-xs outline-none"
                     value={newStaff.nationalId}
                     onChange={(e) =>
                       setNewStaff({ ...newStaff, nationalId: e.target.value })
@@ -2003,12 +2070,12 @@ const AdminDashboard = ({
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase ml-1">
+                  <label className="text-[10px] font-black text-[#94A3B8] uppercase ml-1">
                     Date of Birth
                   </label>
                   <input
                     type="date"
-                    className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold mt-1 text-xs outline-none"
+                    className="w-full p-3 bg-[#0E1B17] border border-white/10 rounded-xl font-bold mt-1 text-xs outline-none"
                     value={newStaff.dob}
                     onChange={(e) =>
                       setNewStaff({ ...newStaff, dob: e.target.value })
@@ -2017,11 +2084,11 @@ const AdminDashboard = ({
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase ml-1">
+                  <label className="text-[10px] font-black text-[#94A3B8] uppercase ml-1">
                     Gender
                   </label>
                   <select
-                    className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold mt-1 text-xs outline-none"
+                    className="w-full p-3 bg-[#0E1B17] border border-white/10 rounded-xl font-bold mt-1 text-xs outline-none"
                     value={newStaff.gender}
                     onChange={(e) =>
                       setNewStaff({ ...newStaff, gender: e.target.value })
@@ -2032,12 +2099,12 @@ const AdminDashboard = ({
                   </select>
                 </div>
                 <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase ml-1">
+                  <label className="text-[10px] font-black text-[#94A3B8] uppercase ml-1">
                     Contact Phone
                   </label>
                   <input
                     type="text"
-                    className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold mt-1 text-xs outline-none"
+                    className="w-full p-3 bg-[#0E1B17] border border-white/10 rounded-xl font-bold mt-1 text-xs outline-none"
                     value={newStaff.phone}
                     onChange={(e) =>
                       setNewStaff({ ...newStaff, phone: e.target.value })
@@ -2046,12 +2113,12 @@ const AdminDashboard = ({
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase ml-1">
+                  <label className="text-[10px] font-black text-[#94A3B8] uppercase ml-1">
                     Emergency Contact
                   </label>
                   <input
                     type="text"
-                    className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold mt-1 text-xs outline-none"
+                    className="w-full p-3 bg-[#0E1B17] border border-white/10 rounded-xl font-bold mt-1 text-xs outline-none"
                     value={newStaff.emergencyContact}
                     onChange={(e) =>
                       setNewStaff({
@@ -2064,12 +2131,12 @@ const AdminDashboard = ({
                 </div>
               </div>
               <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase ml-1">
+                <label className="text-[10px] font-black text-[#94A3B8] uppercase ml-1">
                   Home Address
                 </label>
                 <input
                   type="text"
-                  className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold mt-1 text-xs outline-none"
+                  className="w-full p-3 bg-[#0E1B17] border border-white/10 rounded-xl font-bold mt-1 text-xs outline-none"
                   value={newStaff.address}
                   onChange={(e) =>
                     setNewStaff({ ...newStaff, address: e.target.value })
@@ -2080,12 +2147,12 @@ const AdminDashboard = ({
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase ml-1">
+                  <label className="text-[10px] font-black text-[#94A3B8] uppercase ml-1">
                     Login Email
                   </label>
                   <input
                     type="email"
-                    className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold mt-1 text-xs outline-none"
+                    className="w-full p-3 bg-[#0E1B17] border border-white/10 rounded-xl font-bold mt-1 text-xs outline-none"
                     value={newStaff.email}
                     onChange={(e) =>
                       setNewStaff({ ...newStaff, email: e.target.value })
@@ -2094,12 +2161,12 @@ const AdminDashboard = ({
                   />
                 </div>
                 <div className="relative">
-                  <label className="text-[10px] font-black text-slate-400 uppercase ml-1">
+                  <label className="text-[10px] font-black text-[#94A3B8] uppercase ml-1">
                     Login Password
                   </label>
                   <input
                     type={showRegPassword ? "text" : "password"}
-                    className="w-full p-3 pr-12 bg-slate-50 border border-slate-100 rounded-xl font-bold mt-1 text-xs outline-none"
+                    className="w-full p-3 pr-12 bg-[#0E1B17] border border-white/10 rounded-xl font-bold mt-1 text-xs outline-none"
                     value={newStaff.password}
                     onChange={(e) =>
                       setNewStaff({ ...newStaff, password: e.target.value })
@@ -2109,7 +2176,7 @@ const AdminDashboard = ({
                   <button
                     type="button"
                     onClick={() => setShowRegPassword((prev) => !prev)}
-                    className="absolute right-3 top-[38px] text-slate-400 hover:text-slate-900 transition-colors"
+                    className="absolute right-3 top-[38px] text-[#94A3B8] hover:text-white transition-colors"
                     aria-label={
                       showRegPassword ? "Hide password" : "Show password"
                     }
@@ -2119,61 +2186,67 @@ const AdminDashboard = ({
                 </div>
               </div>
 
-              <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest border-b pb-1 pt-2">
+              <p className="text-[10px] font-black text-[#10B981] uppercase tracking-widest border-b pb-1 pt-2">
                 2. Credentials & Job Data (Professional_Profiles)
               </p>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase ml-1">
+                  <label className="text-[10px] font-black text-[#94A3B8] uppercase ml-1">
                     Job Title / Role
                   </label>
                   <select
-                    className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold mt-1 text-xs outline-none"
+                    className="w-full p-3 bg-[#0E1B17] border border-white/10 rounded-xl font-bold mt-1 text-xs outline-none"
                     value={newStaff.jobTitle}
-                    onChange={(e) =>
-                      setNewStaff({ ...newStaff, jobTitle: e.target.value })
-                    }
+                    onChange={(e) => {
+                      const role = e.target.value;
+                      const depts = roleToDepartments[role] || ["General"];
+                      setNewStaff({
+                        ...newStaff,
+                        jobTitle: role,
+                        dept: depts[0],
+                      });
+                    }}
                   >
                     <option>Administrator</option>
                     <option>Doctor</option>
                     <option>Nurse</option>
-                    <option>Lab Tech</option>
-                    <option>Receptionist</option>
-                    <option>Cashier</option>
-                    <option>Pharmacist</option>
-                    <option>Store Manager</option>
-                    <option>Ward</option>
                     <option>Triage</option>
+                    <option>Receptionist</option>
+                    <option>Pharmacist</option>
+                    <option>Pharmacy Cashier</option>
+                    <option>Laboratory</option>
+                    <option>Laboratory Cashier</option>
+                    <option>Store Manager</option>
+                    <option>Ward Manager</option>
                     <option>Radiology</option>
                   </select>
                 </div>
-                 <div>
-                   <label className="text-[10px] font-black text-slate-400 uppercase ml-1">
-                     Department
-                   </label>
-                   <select
-                     className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold mt-1 text-xs outline-none"
-                     value={newStaff.dept}
-                     onChange={(e) =>
-                       setNewStaff({ ...newStaff, dept: e.target.value })
-                     }
-                     required
-                   >
-                     <option value="">Select Department</option>
-                     {staffDepartments.map((dept) => (
-                       <option key={dept} value={dept}>
-                         {dept}
-                       </option>
-                     ))}
-                   </select>
-                 </div>
                 <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase ml-1">
+                  <label className="text-[10px] font-black text-[#94A3B8] uppercase ml-1">
+                    Department
+                  </label>
+                  <select
+                    className="w-full p-3 bg-[#0E1B17] border border-white/10 rounded-xl font-bold mt-1 text-xs outline-none"
+                    value={newStaff.dept}
+                    onChange={(e) =>
+                      setNewStaff({ ...newStaff, dept: e.target.value })
+                    }
+                    required
+                  >
+                    {availableDepartments.map((dept) => (
+                      <option key={dept} value={dept}>
+                        {dept}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-[#94A3B8] uppercase ml-1">
                     Qualification
                   </label>
                   <input
                     type="text"
-                    className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold mt-1 text-xs outline-none"
+                    className="w-full p-3 bg-[#0E1B17] border border-white/10 rounded-xl font-bold mt-1 text-xs outline-none"
                     value={newStaff.qualification}
                     onChange={(e) =>
                       setNewStaff({
@@ -2185,12 +2258,12 @@ const AdminDashboard = ({
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase ml-1">
+                  <label className="text-[10px] font-black text-[#94A3B8] uppercase ml-1">
                     Certification No
                   </label>
                   <input
                     type="text"
-                    className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold mt-1 text-xs outline-none"
+                    className="w-full p-3 bg-[#0E1B17] border border-white/10 rounded-xl font-bold mt-1 text-xs outline-none"
                     value={newStaff.certNo}
                     onChange={(e) =>
                       setNewStaff({
@@ -2202,12 +2275,12 @@ const AdminDashboard = ({
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase ml-1">
+                  <label className="text-[10px] font-black text-[#94A3B8] uppercase ml-1">
                     Years of Experience
                   </label>
                   <input
                     type="number"
-                    className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold mt-1 text-xs outline-none"
+                    className="w-full p-3 bg-[#0E1B17] border border-white/10 rounded-xl font-bold mt-1 text-xs outline-none"
                     value={newStaff.yearsExp}
                     onChange={(e) =>
                       setNewStaff({ ...newStaff, yearsExp: e.target.value })
@@ -2216,11 +2289,11 @@ const AdminDashboard = ({
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase ml-1">
+                  <label className="text-[10px] font-black text-[#94A3B8] uppercase ml-1">
                     Contract Status
                   </label>
                   <select
-                    className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold mt-1 text-xs outline-none"
+                    className="w-full p-3 bg-[#0E1B17] border border-white/10 rounded-xl font-bold mt-1 text-xs outline-none"
                     value={newStaff.contractStatus}
                     onChange={(e) =>
                       setNewStaff({
@@ -2239,13 +2312,13 @@ const AdminDashboard = ({
                 <button
                   type="button"
                   onClick={() => setIsRegModalOpen(false)}
-                  className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-xs"
+                  className="flex-1 py-4 bg-[#0E1B17] text-[#94A3B8] rounded-2xl font-black uppercase text-xs"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-4 bg-blue-600 text-white rounded-2xl font-black uppercase text-xs shadow-lg shadow-blue-100"
+                  className="flex-1 py-4 bg-[#10B981] text-white rounded-2xl font-black uppercase text-xs shadow-lg shadow-[#10B981]/20"
                 >
                   Commit to Database
                 </button>
@@ -2262,10 +2335,10 @@ const AdminDashboard = ({
 const NavItem = ({ icon, label, active, onClick }) => (
   <button
     onClick={onClick}
-    className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl transition-all cursor-pointer ${active ? "bg-blue-600 text-white shadow-lg shadow-blue-200" : "text-slate-400 hover:bg-slate-50"}`}
+    className={`w-full flex items-center gap-4 px-4 py-2.5 rounded-lg font-bold uppercase tracking-wider transition ${active ? "bg-[#10B981] text-white shadow-md font-black" : "text-[#94A3B8] hover:bg-[#0E1B17] hover:text-white"}`}
   >
-    {React.cloneElement(icon, { size: 20 })}{" "}
-    <span className="font-black text-sm">{label}</span>
+    {React.cloneElement(icon, { size: 16 })}{" "}
+    <span className="text-[11px]">{label}</span>
   </button>
 );
 
@@ -2273,7 +2346,7 @@ const StatusButton = ({ current, type, onClick, label, activeColor, icon }) => (
   <button
     type="button"
     onClick={onClick}
-    className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 transition-all duration-300 cursor-pointer ${current === type ? activeColor + " text-white shadow-md shadow-slate-200" : "text-slate-400 hover:bg-white"}`}
+    className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 transition-all duration-300 cursor-pointer ${current === type ? activeColor + " text-white shadow-md shadow-slate-200" : "text-[#94A3B8] hover:bg-[#0E1B17]"}`}
   >
     {icon} <span>{label}</span>
   </button>
@@ -2281,17 +2354,17 @@ const StatusButton = ({ current, type, onClick, label, activeColor, icon }) => (
 
 const StatCardGraph = ({ label, value, color, bgColor, onAnchorAction }) => (
   <div
-    className={`${bgColor} p-8 rounded-[2.5rem] border border-white shadow-sm relative overflow-hidden group`}
+    className={`${bgColor} p-8 rounded-[2.5rem] border border-white/20 shadow-sm relative overflow-hidden group`}
   >
     <div className="relative z-10">
-      <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest">
+      <p className="text-[#94A3B8] text-[10px] font-black uppercase tracking-widest">
         {label}
       </p>
       <h2 className="text-4xl font-black mt-2">{value}</h2>
       <button
         type="button"
         onClick={onAnchorAction}
-        className="text-[9px] font-black text-blue-600 mt-4 uppercase hover:underline cursor-pointer"
+        className="text-[9px] font-black text-[#10B981] mt-4 uppercase hover:underline cursor-pointer"
       >
         View All →
       </button>
@@ -2314,24 +2387,24 @@ const StatCardGraph = ({ label, value, color, bgColor, onAnchorAction }) => (
 
 const DeptCard = ({ icon, label, sub, color, onClick }) => {
   const colorMap = {
-    emerald: "bg-emerald-50/60 text-emerald-600",
-    blue: "bg-blue-50/60 text-blue-600",
-    indigo: "bg-indigo-50/60 text-indigo-600",
-    rose: "bg-rose-50/60 text-rose-600",
-    amber: "bg-amber-50/60 text-amber-600",
-    slate: "bg-slate-50 text-slate-600",
+    emerald: "bg-[#10B981]/10/60 text-[#10B981]",
+    blue: "bg-[#10B981]/10/60 text-[#10B981]",
+    indigo: "bg-[#10B981]/10/60 text-[#10B981]",
+    rose: "bg-[#EF4444]/10/60 text-[#EF4444]",
+    amber: "bg-amber-500/10 text-amber-300",
+    slate: "bg-[#0E1B17] text-slate-300",
   };
   return (
     <div
       onClick={onClick}
-      className={`${colorMap[color]} p-5 rounded-2xl flex items-center justify-between group border border-white hover:bg-white hover:shadow-md transition-all cursor-pointer active:scale-95`}
+      className={`${colorMap[color]} p-5 rounded-2xl flex items-center justify-between group border border-white/20 hover:bg-[#0E1B17] hover:shadow-md transition-all cursor-pointer active:scale-95`}
     >
       <div className="flex items-center gap-4">
-        <div className="bg-white p-3 rounded-xl shadow-sm text-slate-800">
+        <div className="bg-[#0E1B17] p-3 rounded-xl shadow-sm text-white">
           {icon}
         </div>
         <div>
-          <h4 className="font-black text-slate-800 text-sm">{label}</h4>
+          <h4 className="font-black text-white text-sm">{label}</h4>
           <p className="text-[9px] font-black opacity-50 uppercase mt-0.5">
             {sub}
           </p>
@@ -2339,29 +2412,29 @@ const DeptCard = ({ icon, label, sub, color, onClick }) => {
       </div>
       <ArrowRight
         size={16}
-        className="opacity-0 group-hover:opacity-100 transition-all text-slate-400"
+        className="opacity-0 group-hover:opacity-100 transition-all text-[#94A3B8]"
       />
     </div>
   );
 };
 
 const PaginationBar = ({ current, total, onPrev, onNext }) => (
-  <div className="p-6 bg-slate-50/50 border-t border-slate-50 flex items-center justify-between">
-    <p className="text-xs font-black text-slate-400 uppercase tracking-widest">
+  <div className="p-6 bg-[#0E1B17]/50 border-t border-white/10 flex items-center justify-between">
+    <p className="text-xs font-black text-[#94A3B8] uppercase tracking-widest">
       Page {current} of {total}
     </p>
     <div className="flex gap-2">
       <button
         disabled={current === 1}
         onClick={onPrev}
-        className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-black disabled:opacity-30 transition-all cursor-pointer"
+        className="px-4 py-2 bg-[#0E1B17] border border-white/20 rounded-xl text-xs font-black disabled:opacity-30 transition-all cursor-pointer"
       >
         Previous
       </button>
       <button
         disabled={current === total}
         onClick={onNext}
-        className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-black disabled:opacity-30 transition-all cursor-pointer"
+        className="px-4 py-2 bg-[#0E1B17] border border-white/20 rounded-xl text-xs font-black disabled:opacity-30 transition-all cursor-pointer"
       >
         Next
       </button>
@@ -2371,39 +2444,39 @@ const PaginationBar = ({ current, total, onPrev, onNext }) => (
 
 const ProfileField = ({ label, value }) => (
   <div className="space-y-2">
-    <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">
+    <label className="text-[10px] font-black text-[#94A3B8] uppercase tracking-[0.2em] ml-1">
       {label}
     </label>
-    <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 font-bold text-slate-800">
+    <div className="bg-[#0E1B17] p-4 rounded-xl border border-white/10 font-bold text-white">
       {value}
     </div>
   </div>
 );
 
 const SettingsCard = ({ icon, title, desc }) => (
-  <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm hover:shadow-md transition-all group cursor-pointer">
-    <div className="bg-slate-50 w-14 h-14 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+  <div className="bg-[#0E1B17] p-8 rounded-[2.5rem] border border-white/10 shadow-sm hover:shadow-md transition-all group cursor-pointer">
+    <div className="bg-[#0E1B17] w-14 h-14 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
       {icon}
     </div>
-    <h3 className="text-lg font-black text-slate-900 mb-2">{title}</h3>
-    <p className="text-xs text-slate-400 font-medium leading-relaxed">{desc}</p>
+    <h3 className="text-lg font-black text-white mb-2">{title}</h3>
+    <p className="text-xs text-[#94A3B8] font-medium leading-relaxed">{desc}</p>
   </div>
 );
 
 const ManageFieldItem = ({ label, value, isEdit, onChange }) => (
-  <div className="space-y-1 bg-slate-50/50 p-3 rounded-2xl border border-slate-100">
-    <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider block ml-1">
+  <div className="space-y-1 bg-[#0E1B17]/50 p-3 rounded-2xl border border-white/10">
+    <label className="text-[9px] font-black text-[#94A3B8] uppercase tracking-wider block ml-1">
       {label}
     </label>
     {isEdit ? (
       <input
         type="text"
-        className="w-full p-2 bg-white border border-slate-200 rounded-xl font-bold text-xs text-slate-800 outline-none focus:border-blue-500"
+        className="w-full p-2 bg-[#0E1B17] border border-white/20 rounded-xl font-bold text-xs text-white outline-none focus:border-[#10B981]"
         value={value}
         onChange={(e) => onChange(e.target.value)}
       />
     ) : (
-      <span className="text-xs font-bold text-slate-700 block px-2 py-1">
+      <span className="text-xs font-bold text-slate-200 block px-2 py-1">
         {value || "Unassigned"}
       </span>
     )}

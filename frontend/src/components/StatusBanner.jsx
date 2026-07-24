@@ -17,6 +17,7 @@ export const StatusBanner = () => {
   const userStr = localStorage.getItem("user");
   const user = userStr ? JSON.parse(userStr) : null;
   const isAdmin = user?.role === "Administrator";
+  const isLoggedIn = !!user;
 
   if (isMaintenance) {
     if (isAdmin) {
@@ -32,8 +33,12 @@ export const StatusBanner = () => {
       );
     }
 
+    if (!isLoggedIn) {
+      return null;
+    }
+
     return (
-      <div className="fixed inset-0 bg-slate-900/95 z-[9999] flex flex-col items-center justify-center text-white p-6">
+      <div className="fixed inset-0 bg-[#050B09]/95 z-[9999] flex flex-col items-center justify-center text-white p-6">
         <div className="bg-red-600/20 p-6 rounded-3xl mb-6 border border-red-500/30">
           <WifiOff size={64} strokeWidth={2.5} className="text-red-400" />
         </div>
@@ -45,17 +50,21 @@ export const StatusBanner = () => {
           operational dashboards are suspended.
         </p>
         <div className="bg-white/10 backdrop-blur px-6 py-3 rounded-2xl mb-6">
-          <p className="text-sm text-slate-400 font-mono">
+          <p className="text-sm text-[#94A3B8] font-mono">
             Status: <span className="text-red-400 font-bold">{status}</span>
           </p>
         </div>
         <button
+          type="button"
           onClick={() => {
-            localStorage.clear();
-            sessionStorage.clear();
-            window.location.href = "/login";
+            try {
+              localStorage.removeItem("token");
+              localStorage.removeItem("user");
+              sessionStorage.clear();
+            } catch (e) {}
+            window.location.replace("/");
           }}
-          className="px-6 py-3 bg-white text-slate-900 font-black text-sm uppercase tracking-wider rounded-xl hover:bg-slate-200 transition-colors"
+          className="px-6 py-3 bg-[#0E1B17] text-white font-black text-sm uppercase tracking-wider rounded-xl hover:bg-[#0a1f19] transition-colors"
         >
           Back to Home
         </button>
