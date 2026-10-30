@@ -12,6 +12,7 @@ const LabOrderSchema = new mongoose.Schema(
     urgency: { type: String, default: "Routine", trim: true },
     panels: [{ type: String, trim: true }],
     specimen: { type: String, trim: true },
+    clinicalSummary: { type: String, default: "", trim: true },
     results: { type: mongoose.Schema.Types.Mixed, default: {} },
     diagnosisReport: { type: String, default: "" },
     status: {

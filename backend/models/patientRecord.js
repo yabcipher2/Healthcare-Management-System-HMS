@@ -82,17 +82,37 @@ const PatientRecordSchema = new mongoose.Schema(
       diagnosis: String,
       doctorNotes: String,
       assignedDoctor: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+      historyPresentIllness: { type: String, default: "" },
+      physicalExamination: { type: String, default: "" },
+      icd11Diagnosis: { type: String, default: "" },
+      pastMedicalHistory: { type: String, default: "" },
+      familyHistory: { type: String, default: "" },
+      allergies: { type: String, default: "" },
     },
 
     // Laboratory module updates
     laboratory: {
       testRequests: [String],
       testResults: mongoose.Schema.Types.Mixed,
+      clinicalSummary: { type: String, default: "" },
       labStatus: {
         type: String,
         enum: ["None", "Pending", "Completed"],
         default: "None",
       },
+    },
+
+    // Radiology/Ultrasound module updates
+    radiology: {
+      imagingStatus: { type: String, default: "None" },
+      requestedModalities: [String],
+      clinicalIndication: { type: String, default: "" },
+      urgencyLevel: { 
+        type: String, 
+        enum: ["Routine", "Urgent", "STAT"], 
+        default: "Routine" 
+      },
+      authorizingPhysician: String,
     },
 
     // Pharmacy inventory logs
