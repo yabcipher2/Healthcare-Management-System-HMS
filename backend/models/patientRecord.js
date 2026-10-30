@@ -2,160 +2,43 @@ const mongoose = require("mongoose");
 
 const PatientRecordSchema = new mongoose.Schema(
   {
-    cardId: { type: String, required: true, unique: true, trim: true },
-    patientName: { type: String, required: true, trim: true },
-    firstName: { type: String, trim: true },
-    middleName: { type: String, trim: true },
-    lastName: { type: String, trim: true },
-    age: { type: Number, required: true },
-    ageUnit: {
+    name: {
       type: String,
-      enum: ["Years", "Months", "Days"],
-      default: "Years",
+      required: [true, "Patient name required"],
+      trim: true,
     },
+    age: { type: Number, required: [true, "Age parameter required"] },
     gender: {
       type: String,
+      required: [true, "Gender flag required"],
       enum: ["Male", "Female", "Other"],
-      required: true,
     },
-    bloodGroup: { type: String, trim: true },
-    maritalStatus: { type: String, trim: true },
-    subCity: { type: String, trim: true },
-    woreda: { type: String, trim: true },
-    houseNumber: { type: String, trim: true },
-    nationality: { type: String, trim: true },
-    contactNumber: { type: String, trim: true },
-    alternativePhone: { type: String, trim: true },
-    emergencyContactName: { type: String, trim: true },
-    emergencyContactPhone: { type: String, trim: true },
-    guardianFullName: { type: String, trim: true },
-    guardianRelationship: { type: String, trim: true },
-    guardianPhone: { type: String, trim: true },
-    chiefComplaint: { type: String, trim: true },
-    admissionType: {
+    contactInfo: { type: String, trim: true, default: "" },
+    regDate: { type: String, trim: true, default: "" },
+    insuranceProvider: { type: String, trim: true, default: "" },
+    policyNumber: { type: String, trim: true, default: "" },
+    condition: {
       type: String,
-      enum: ["OPD", "IPD", "Emergency", "Referral"],
-      default: "OPD",
+      required: [true, "Clinical diagnosis required"],
+      trim: true,
     },
-    paymentType: {
-      type: String,
-      enum: ["Cash", "Credit/Insurance", "Prepaid", "Other"],
-      default: "Cash",
-    },
-    companyName: { type: String, trim: true },
-    policyNumber: { type: String, trim: true },
-    referredFrom: { type: String, trim: true },
-    registrationTime: { type: String, trim: true },
-
-    // Linear Clinical Path Progression State Tracker
-    currentStatus: {
+    treatmentPlan: { type: String, trim: true, default: "" },
+    status: {
       type: String,
       enum: [
-        "Registration",
-        "Triage",
-        "Consultation",
-        "Laboratory",
-        "Pharmacy",
-        "Billing",
+        "Admitted",
+        "Under Observation",
         "Discharged",
+        "Archived",
+        "Triage Queue",
       ],
-      default: "Registration",
+      default: "Under Observation",
     },
-
-    // Triage parameters checked by Nurses/Receptionists
-    triage: {
-      bloodPressure: String,
-      heartRate: Number,
-      temperature: Number,
-      respiratoryRate: Number,
-      weight: Number,
-      randomBloodSugar: Number,
-      triageCategory: String,
-      secondaryUrgencyNotes: String,
-    },
-
-    triageDepartment: { type: String, trim: true },
-
-    // Clinical updates populated by Doctors
-    consultation: {
-      symptoms: String,
-      diagnosis: String,
-      doctorNotes: String,
-      assignedDoctor: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
-      historyPresentIllness: { type: String, default: "" },
-      physicalExamination: { type: String, default: "" },
-      icd11Diagnosis: { type: String, default: "" },
-      pastMedicalHistory: { type: String, default: "" },
-      familyHistory: { type: String, default: "" },
-      allergies: { type: String, default: "" },
-    },
-
-    // Laboratory module updates
-    laboratory: {
-      testRequests: [String],
-      testResults: mongoose.Schema.Types.Mixed,
-      clinicalSummary: { type: String, default: "" },
-      labStatus: {
-        type: String,
-        enum: ["None", "Pending", "Completed"],
-        default: "None",
-      },
-    },
-
-    // Radiology/Ultrasound module updates
-    radiology: {
-      imagingStatus: { type: String, default: "None" },
-      requestedModalities: [String],
-      clinicalIndication: { type: String, default: "" },
-      urgencyLevel: { 
-        type: String, 
-        enum: ["Routine", "Urgent", "STAT"], 
-        default: "Routine" 
-      },
-      authorizingPhysician: String,
-    },
-
-    // Pharmacy inventory logs
-    pharmacy: {
-      prescribedDrugs: [String],
-      prescriptionLines: [{
-        id: String,
-        name: String,
-        dosage: String,
-        frequency: String,
-        duration: String,
-        inStock: Boolean,
-      }],
-      dispenseStatus: {
-        type: String,
-        enum: ["Pending", "Dispensed"],
-        default: "Pending",
-      },
-    },
-
-    // Liaison & Admission data
-    liaison: {
-      selectedDepartment: String,
-      selectedWardNurse: String,
-      admissionUrgency: String,
-      clinicalReason: String,
-      admissionDate: String,
-      dischargeDate: String,
-      medicationIntake: String,
-      status: String,
-    },
-
-    // Financial metrics
-    billing: {
-      totalCost: { type: Number, default: 0 },
-      paymentStatus: {
-        type: String,
-        enum: ["Unpaid", "Paid"],
-        default: "Unpaid",
-      },
-    },
+    avatarColor: { type: String, default: "bg-slate-500" },
   },
-  { timestamps: true },
+  {
+    timestamps: true, // Tracks variations across the timeline entry
+  },
 );
 
 module.exports = mongoose.model("PatientRecord", PatientRecordSchema);
