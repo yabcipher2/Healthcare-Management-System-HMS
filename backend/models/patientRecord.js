@@ -118,11 +118,31 @@ const PatientRecordSchema = new mongoose.Schema(
     // Pharmacy inventory logs
     pharmacy: {
       prescribedDrugs: [String],
+      prescriptionLines: [{
+        id: String,
+        name: String,
+        dosage: String,
+        frequency: String,
+        duration: String,
+        inStock: Boolean,
+      }],
       dispenseStatus: {
         type: String,
         enum: ["Pending", "Dispensed"],
         default: "Pending",
       },
+    },
+
+    // Liaison & Admission data
+    liaison: {
+      selectedDepartment: String,
+      selectedWardNurse: String,
+      admissionUrgency: String,
+      clinicalReason: String,
+      admissionDate: String,
+      dischargeDate: String,
+      medicationIntake: String,
+      status: String,
     },
 
     // Financial metrics

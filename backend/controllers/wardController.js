@@ -67,3 +67,55 @@ const dischargeBed = async (req, res) => {
 };
 
 module.exports = { getBeds, updateBed, dischargeBed };
+
+const PatientRecord = require("../models/PatientRecord");
+
+const getAdmissionRequests = async (req, res) => {
+  try {
+    // For now, return empty array - can be expanded to fetch from a separate AdmissionRequest model
+    res.status(200).json({ success: true, data: [] });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const createAdmissionRequest = async (req, res) => {
+  try {
+    const {
+      patientId,
+      selectedDepartment,
+      selectedWardNurse,
+      admissionUrgency,
+      clinicalReason,
+      admissionDate,
+      dischargeDate,
+      medicationIntake,
+    } = req.body;
+
+    // Update patient record with liaison data
+    if (patientId) {
+      await PatientRecord.findByIdAndUpdate(patientId, {
+        "liaison.selectedDepartment": selectedDepartment,
+        "liaison.selectedWardNurse": selectedWardNurse,
+        "liaison.admissionUrgency": admissionUrgency,
+        "liaison.clinicalReason": clinicalReason,
+        "liaison.admissionDate": admissionDate,
+        "liaison.dischargeDate": dischargeDate,
+        "liaison.medicationIntake": medicationIntake,
+        "liaison.status": "Pending Ward Assignment",
+      });
+    }
+
+    await logAudit(req, "CREATE", "Ward", `Admission request created for ${req.body.patientName} - ${selectedDepartment} / ${selectedWardNurse}`, patientId);
+
+    res.status(201).json({ 
+      success: true, 
+      message: "Admission request created successfully",
+      data: { patientId, selectedDepartment, selectedWardNurse, status: "Pending" }
+    });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+module.exports = { getBeds, updateBed, dischargeBed, getAdmissionRequests, createAdmissionRequest };

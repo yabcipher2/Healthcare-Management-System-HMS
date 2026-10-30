@@ -58,6 +58,14 @@ export default function DoctorPage({ onLogout }) {
   });
   const [aptSubmitting, setAptSubmitting] = useState(false);
   const [aptMessage, setAptMessage] = useState("");
+  const [editingAppointment, setEditingAppointment] = useState(null);
+  const [editAptForm, setEditAptForm] = useState({
+    appointmentDate: "",
+    appointmentTime: "",
+    reason: "",
+    status: "scheduled",
+  });
+  const [editAptMessage, setEditAptMessage] = useState("");
 
   // Core Operational Entities
   const [cases, setCases] = useState([]);
@@ -152,13 +160,16 @@ export default function DoctorPage({ onLogout }) {
 
   // Liaison & Admission Coordination Engine State (bridges to Ward Management)
   const [liaisonForm, setLiaisonForm] = useState({
-    preferredWard: "General Ward",
+    selectedDepartment: "",
+    selectedWardNurse: "",
     admissionUrgency: "Routine",
     clinicalReason: "",
     admissionDate: "",
     dischargeDate: "",
     medicationIntake: "",
   });
+  const [wardDepartments, setWardDepartments] = useState([]);
+  const [wardNurses, setWardNurses] = useState([]);
   const [wardBeds, setWardBeds] = useState([]);
   const [wardWards, setWardWards] = useState([]);
   const [patientAdmissionRequests, setPatientAdmissionRequests] = useState([]);
@@ -719,10 +730,11 @@ export default function DoctorPage({ onLogout }) {
           prescribedDrugs: selectedDrugs.map(
             (d) => `${d.name} - ${d.dosage} [${d.frequency} x ${d.duration}]`,
           ),
+          prescriptionLines: selectedDrugs, // Store full prescription objects
           authorizingPhysician: doctorInfo.name,
         },
       }));
-      setSelectedDrugs([]);
+      // Don't clear selectedDrugs - keep prescriptions visible until card returns to reception
 
       triggerSystemBanner(
         `SUCCESS: Dispensation payload transmitted to Pharmacy Dispensation Hub. Awaiting cashier settlement and dispensation.`,
@@ -901,6 +913,15 @@ export default function DoctorPage({ onLogout }) {
         carePlan: "",
         status: "Pending Meds",
       });
+      setLiaisonForm({
+        selectedDepartment: "",
+        selectedWardNurse: "",
+        admissionUrgency: "Routine",
+        clinicalReason: "",
+        admissionDate: "",
+        dischargeDate: "",
+        medicationIntake: "",
+      });
       setPatientHistory([]);
       setHistoryFetched(false);
       setHistoryDetailView(null);
@@ -981,7 +1002,141 @@ export default function DoctorPage({ onLogout }) {
     }
   };
 
+  // Update existing appointment
+  const handleUpdateAppointment = async (e) => {
+    e.preventDefault();
+    if (!editingAppointment) return;
+    
+    if (!editAptForm.appointmentDate || !editAptForm.appointmentTime) {
+      setEditAptMessage("Date and time are required.");
+      return;
+    }
+    
+    try {
+      const response = await fetch(
+        `${API_URL}/api/doctor/appointments/${editingAppointment}`,
+        {
+          method: "PUT",
+          headers: getAuthHeaders(),
+          body: JSON.stringify(editAptForm),
+        }
+      );
+      
+      if (response.status === 401) {
+        localStorage.removeItem("token");
+        onLogout?.();
+        return;
+      }
+      
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || "Failed to update appointment");
+      }
+
+      await logAudit({
+        action: "UPDATE",
+        module: "Appointment",
+        details: `Appointment updated: ${editAptForm.appointmentDate} ${editAptForm.appointmentTime} - Status: ${editAptForm.status}`,
+        targetId: editingAppointment,
+        targetType: "Appointment",
+      });
+
+      setEditAptMessage("Appointment updated successfully.");
+      setTimeout(() => {
+        setEditingAppointment(null);
+        setEditAptMessage("");
+      }, 1500);
+      fetchAppointments();
+    } catch (err) {
+      setEditAptMessage(err.message || "Failed to update appointment.");
+    }
+  };
+
+  // Delete appointment
+  const handleDeleteAppointment = async (appointmentId) => {
+    if (!window.confirm("Are you sure you want to delete this appointment?")) {
+      return;
+    }
+    
+    try {
+      const response = await fetch(
+        `${API_URL}/api/doctor/appointments/${appointmentId}`,
+        {
+          method: "DELETE",
+          headers: getAuthHeaders(),
+        }
+      );
+      
+      if (response.status === 401) {
+        localStorage.removeItem("token");
+        onLogout?.();
+        return;
+      }
+      
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || "Failed to delete appointment");
+      }
+
+      await logAudit({
+        action: "DELETE",
+        module: "Appointment",
+        details: `Appointment deleted: ${appointmentId}`,
+        targetId: appointmentId,
+        targetType: "Appointment",
+      });
+
+      fetchAppointments(); // Refresh the list
+    } catch (err) {
+      alert(err.message || "Failed to delete appointment.");
+    }
+  };
+
   // Liaison & Admission Coordination -> Ward Management bridge
+  const fetchWardDepartments = useCallback(async () => {
+    try {
+      const response = await fetch(`${API_URL}/api/staffs/ward/departments`, {
+        headers: getAuthHeaders(),
+      });
+      if (response.status === 401) return handleAuthError();
+      if (!response.ok) return;
+      const data = await response.json();
+      // Handle both response formats
+      const departments = data.departments || data.data || [];
+      setWardDepartments(departments);
+      console.log("Ward departments fetched:", departments);
+    } catch (err) {
+      console.warn("Ward departments fetch failed:", err);
+    }
+  }, [API_URL, getAuthHeaders, handleAuthError]);
+
+  const fetchWardNurses = useCallback(async (department) => {
+    if (!department) {
+      setWardNurses([]);
+      return;
+    }
+    try {
+      const response = await fetch(
+        `${API_URL}/api/staffs/ward/staff?department=${encodeURIComponent(department)}`,
+        { headers: getAuthHeaders() }
+      );
+      if (response.status === 401) return handleAuthError();
+      if (!response.ok) {
+        console.warn("Ward staff fetch failed - response not ok");
+        setWardNurses([]);
+        return;
+      }
+      const data = await response.json();
+      // Backend returns { success, count, staff }
+      const staff = data.staff || data.data || [];
+      setWardNurses(staff);
+      console.log("Ward staff fetched for", department, ":", staff);
+    } catch (err) {
+      console.warn("Ward staff fetch failed:", err);
+      setWardNurses([]);
+    }
+  }, [API_URL, getAuthHeaders, handleAuthError]);
+
   const fetchWardBeds = useCallback(async () => {
     try {
       const response = await fetch(`${API_URL}/api/ward`, {
@@ -1052,7 +1207,8 @@ export default function DoctorPage({ onLogout }) {
           age: selectedCase.age,
           gender: selectedCase.gender,
           doctorName: doctorInfo.name,
-          preferredWard: liaisonForm.preferredWard,
+          selectedDepartment: liaisonForm.selectedDepartment,
+          selectedWardNurse: liaisonForm.selectedWardNurse,
           admissionUrgency: liaisonForm.admissionUrgency,
           clinicalReason: liaisonForm.clinicalReason,
           admissionDate: liaisonForm.admissionDate,
@@ -1068,21 +1224,31 @@ export default function DoctorPage({ onLogout }) {
       await logAudit({
         action: "CREATE",
         module: "Ward-Admission",
-        details: `Ward admission request raised for ${selectedCase.patientName} (${selectedCase.cardId}) -> ${liaisonForm.preferredWard}`,
+        details: `Ward admission request raised for ${selectedCase.patientName} (${selectedCase.cardId}) -> ${liaisonForm.selectedDepartment} / ${liaisonForm.selectedWardNurse}`,
         targetId: selectedCase._id,
         targetType: "AdmissionRequest",
       });
+      
+      // Update selectedCase with liaison data
+      setSelectedCase((prev) => ({
+        ...prev,
+        liaison: {
+          selectedDepartment: liaisonForm.selectedDepartment,
+          selectedWardNurse: liaisonForm.selectedWardNurse,
+          admissionUrgency: liaisonForm.admissionUrgency,
+          clinicalReason: liaisonForm.clinicalReason,
+          admissionDate: liaisonForm.admissionDate,
+          dischargeDate: liaisonForm.dischargeDate,
+          medicationIntake: liaisonForm.medicationIntake,
+          status: "Pending Ward Assignment",
+        },
+      }));
+      
+      // Don't clear liaisonForm - keep data visible until card returns to reception
+      
       setLiaisonMessage(
         "Admission request transmitted to Ward Management Admission Hub. Awaiting bed asset assignment.",
       );
-      setLiaisonForm({
-        preferredWard: "General Ward",
-        admissionUrgency: "Routine",
-        clinicalReason: "",
-        admissionDate: "",
-        dischargeDate: "",
-        medicationIntake: "",
-      });
       fetchPatientAdmissionRequests();
     } catch (err) {
       setLiaisonMessage(err.message || "Transmission error.");
@@ -1154,13 +1320,21 @@ export default function DoctorPage({ onLogout }) {
     }
   };
 
-  // Pull Ward inventory + this patient's admission requests when the Liaison sub-view is active
+  // Pull Ward departments and nurses when liaison tab opens
   useEffect(() => {
     if (emrSubTab !== "liaison") return;
+    fetchWardDepartments();
     fetchWardBeds();
     fetchPatientAdmissionRequests();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [emrSubTab, selectedCase?._id]);
+
+  // Fetch ward nurses when department changes
+  useEffect(() => {
+    if (liaisonForm.selectedDepartment) {
+      fetchWardNurses(liaisonForm.selectedDepartment);
+    }
+  }, [liaisonForm.selectedDepartment, fetchWardNurses]);
 
   // Nurse Coordination bridge
   const fetchNurseDepartments = useCallback(async () => {
@@ -1437,6 +1611,37 @@ export default function DoctorPage({ onLogout }) {
           ...restoredRegions,
         }));
       }
+    }
+  }, [selectedCase]);
+
+  // Populate Pharmacy prescriptions when patient data is loaded
+  useEffect(() => {
+    if (!selectedCase) return;
+    
+    const pharmacy = selectedCase.pharmacy;
+    if (pharmacy && pharmacy.prescriptionLines && Array.isArray(pharmacy.prescriptionLines)) {
+      // Restore prescription list from database
+      setSelectedDrugs(pharmacy.prescriptionLines);
+    }
+  }, [selectedCase]);
+
+  // Populate Liaison form when patient data is loaded
+  useEffect(() => {
+    if (!selectedCase) return;
+    
+    const liaison = selectedCase.liaison;
+    if (liaison) {
+      // Populate liaison form from liaison data
+      setLiaisonForm((prev) => ({
+        ...prev,
+        selectedDepartment: liaison.selectedDepartment || prev.selectedDepartment || "",
+        selectedWardNurse: liaison.selectedWardNurse || prev.selectedWardNurse || "",
+        admissionUrgency: liaison.admissionUrgency || prev.admissionUrgency || "Routine",
+        clinicalReason: liaison.clinicalReason || prev.clinicalReason || "",
+        admissionDate: liaison.admissionDate || prev.admissionDate || "",
+        dischargeDate: liaison.dischargeDate || prev.dischargeDate || "",
+        medicationIntake: liaison.medicationIntake || prev.medicationIntake || "",
+      }));
     }
   }, [selectedCase]);
 
@@ -2805,7 +3010,7 @@ export default function DoctorPage({ onLogout }) {
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
                         <div>
-                          <label className="block text-[9px] font-mono font-bold text-slate-400 uppercase mb-1">
+                          <label className="block text-[9px] font-mono font-bold text-slate-700 uppercase mb-1">
                             Select Item from Core Inventory Registry
                           </label>
                           <select
@@ -2839,7 +3044,7 @@ export default function DoctorPage({ onLogout }) {
                         </div>
 
                         <div>
-                          <label className="block text-[9px] font-mono font-bold text-slate-400 uppercase mb-1">
+                          <label className="block text-[9px] font-mono font-bold text-slate-700 uppercase mb-1">
                             Dosage Target Pattern
                           </label>
                           <input
@@ -2859,7 +3064,7 @@ export default function DoctorPage({ onLogout }) {
 
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
                         <div>
-                          <label className="block text-[9px] font-mono font-bold text-slate-400 uppercase mb-1">
+                          <label className="block text-[9px] font-mono font-bold text-slate-700 uppercase mb-1">
                             Administration Frequency Matrix
                           </label>
                           <select
@@ -2881,7 +3086,7 @@ export default function DoctorPage({ onLogout }) {
                         </div>
 
                         <div>
-                          <label className="block text-[9px] font-mono font-bold text-slate-400 uppercase mb-1">
+                          <label className="block text-[9px] font-mono font-bold text-slate-700 uppercase mb-1">
                             Course Duration Boundary
                           </label>
                           <input
@@ -2910,11 +3115,11 @@ export default function DoctorPage({ onLogout }) {
 
                     {/* Render Formatted Prescriptions with Crimson Warnings */}
                     <div className="border border-slate-200 rounded-xl bg-white p-3 font-mono text-[11px]">
-                      <div className="text-slate-400 font-bold uppercase text-[9px] mb-2 border-b border-slate-100 pb-1">
+                      <div className="text-slate-700 font-bold uppercase text-[9px] mb-2 border-b border-slate-100 pb-1 font-mono">
                         Queued Pharmacy Dispatches Basket Matrix:
                       </div>
                       {selectedDrugs.length === 0 ? (
-                        <span className="text-slate-400 text-[10px]">
+                        <span className="text-slate-600 text-[10px] font-mono">
                           No active therapeutic lines written inside this panel
                           frame asset block.
                         </span>
@@ -3273,33 +3478,69 @@ export default function DoctorPage({ onLogout }) {
                         onSubmit={submitWardAdmission}
                         className="bg-white border border-slate-200 rounded-xl p-4 space-y-3"
                       >
-                        <h4 className="flex items-center gap-2 text-[11px] font-mono font-bold text-slate-700 uppercase tracking-wider border-b border-slate-100 pb-2">
-                          <Bed size={14} className="text-[#3b82f6]" /> Ward
-                          Admission Request
+                        <h4 className="flex items-center gap-2 text-[12px] font-mono font-black text-[#1e40af] uppercase tracking-wider border-b-2 border-blue-200 pb-2 mb-3">
+                          <Bed size={16} className="text-[#3b82f6]" /> Ward Admission Request
+                          <span className="ml-auto text-[9px] bg-gradient-to-r from-emerald-500 to-emerald-600 text-white px-2.5 py-1 rounded-full font-bold shadow-sm">
+                            ✓ AUTO-SAVE ENABLED
+                          </span>
                         </h4>
-                        <div>
-                          <label className="block text-[10px] font-mono font-bold text-slate-500 uppercase tracking-wider mb-1">
-                            Preferred Ward
-                          </label>
-                          <select
-                            value={liaisonForm.preferredWard}
-                            onChange={(e) =>
-                              setLiaisonForm((p) => ({
-                                ...p,
-                                preferredWard: e.target.value,
-                              }))
-                            }
-                            className="w-full border border-slate-300 rounded-lg px-3 py-2 text-[11px] bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#3b82f6]/40"
-                          >
-                            {wardWards.map((w) => (
-                              <option key={w} value={w}>
-                                {w}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-[10px] font-mono font-black text-slate-700 uppercase tracking-wider mb-1.5">
+                              Ward Department
+                            </label>
+                            <select
+                              value={liaisonForm.selectedDepartment}
+                              onChange={(e) => {
+                                setLiaisonForm((p) => ({
+                                  ...p,
+                                  selectedDepartment: e.target.value,
+                                  selectedWardNurse: "", // Reset nurse when department changes
+                                }));
+                              }}
+                              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-[11px] text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#3b82f6]/40 font-mono"
+                            >
+                              <option value="">-- Select Ward Department --</option>
+                              {wardDepartments.map((dept) => (
+                                <option key={dept} value={dept}>
+                                  {dept}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          
+                          <div>
+                            <label className="block text-[10px] font-mono font-black text-slate-700 uppercase tracking-wider mb-1.5">
+                              Assign Ward Nurse
+                            </label>
+                            <select
+                              value={liaisonForm.selectedWardNurse}
+                              onChange={(e) =>
+                                setLiaisonForm((p) => ({
+                                  ...p,
+                                  selectedWardNurse: e.target.value,
+                                }))
+                              }
+                              disabled={!liaisonForm.selectedDepartment || wardNurses.length === 0}
+                              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-[11px] text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#3b82f6]/40 font-mono disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              <option value="">
+                                {!liaisonForm.selectedDepartment
+                                  ? "Select department first"
+                                  : wardNurses.length === 0
+                                  ? "No nurses available"
+                                  : "-- Select Ward Nurse --"}
                               </option>
-                            ))}
-                          </select>
+                              {wardNurses.map((nurse) => (
+                                <option key={nurse._id} value={nurse.name}>
+                                  {nurse.name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
                         </div>
                         <div>
-                          <label className="block text-[10px] font-mono font-bold text-slate-500 uppercase tracking-wider mb-1">
+                          <label className="block text-[10px] font-mono font-black text-slate-700 uppercase tracking-wider mb-1.5">
                             Admission Urgency
                           </label>
                           <select
@@ -3310,7 +3551,7 @@ export default function DoctorPage({ onLogout }) {
                                 admissionUrgency: e.target.value,
                               }))
                             }
-                            className="w-full border border-slate-300 rounded-lg px-3 py-2 text-[11px] bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#3b82f6]/40"
+                            className="w-full border border-slate-300 rounded-lg px-3 py-2 text-[11px] text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#3b82f6]/40 font-mono"
                           >
                             <option value="Routine">Routine</option>
                             <option value="Priority">Priority</option>
@@ -3318,7 +3559,7 @@ export default function DoctorPage({ onLogout }) {
                           </select>
                         </div>
                         <div>
-                          <label className="block text-[10px] font-mono font-bold text-slate-500 uppercase tracking-wider mb-1">
+                          <label className="block text-[10px] font-mono font-black text-slate-700 uppercase tracking-wider mb-1.5">
                             Clinical Admission Indication
                           </label>
                           <textarea
@@ -3331,12 +3572,12 @@ export default function DoctorPage({ onLogout }) {
                               }))
                             }
                             placeholder="Reason for inpatient admission..."
-                            className="w-full border border-slate-300 rounded-lg px-3 py-2 text-[11px] bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#3b82f6]/40"
+                            className="w-full border border-slate-300 rounded-lg px-3 py-2 text-[11px] text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#3b82f6]/40 font-mono"
                           />
                         </div>
                         <div className="grid grid-cols-2 gap-3">
                           <div>
-                            <label className="block text-[10px] font-mono font-bold text-slate-500 uppercase tracking-wider mb-1">
+                            <label className="block text-[10px] font-mono font-black text-slate-700 uppercase tracking-wider mb-1.5">
                               Admit Date
                             </label>
                             <input
@@ -3348,11 +3589,11 @@ export default function DoctorPage({ onLogout }) {
                                   admissionDate: e.target.value,
                                 }))
                               }
-                              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-[11px] bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#3b82f6]/40"
+                              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-[11px] text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#3b82f6]/40 font-mono"
                             />
                           </div>
                           <div>
-                            <label className="block text-[10px] font-mono font-bold text-slate-500 uppercase tracking-wider mb-1">
+                            <label className="block text-[10px] font-mono font-black text-slate-700 uppercase tracking-wider mb-1.5">
                               Est. Discharge
                             </label>
                             <input
@@ -3364,7 +3605,7 @@ export default function DoctorPage({ onLogout }) {
                                   dischargeDate: e.target.value,
                                 }))
                               }
-                              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-[11px] bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#3b82f6]/40"
+                              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-[11px] text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#3b82f6]/40 font-mono"
                             />
                           </div>
                         </div>
@@ -3380,12 +3621,12 @@ export default function DoctorPage({ onLogout }) {
                                 medicationIntake: e.target.value,
                               }))
                             }
-                            className="w-full border border-slate-300 rounded-lg px-3 py-2 text-[11px] bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#3b82f6]/40"
+                            className="w-full border border-slate-300 rounded-lg px-3 py-2 text-[11px] text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#3b82f6]/40 font-mono"
                           >
                             <option value="">-- Select Medication --</option>
-                            {medicineInventory.map((med) => (
-                              <option key={med._id || med.name} value={med.name}>
-                                {med.name} {med.dosage ? `(${med.dosage})` : ""}
+                            {masterPharmacyFormulary.map((med) => (
+                              <option key={med.id} value={med.name}>
+                                {med.name}
                               </option>
                             ))}
                           </select>

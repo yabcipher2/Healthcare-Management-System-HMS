@@ -158,10 +158,62 @@ const getNursesByDepartment = async (req, res) => {
   }
 };
 
+// Get all unique ward departments (for ward staff, not nurses)
+const getWardDepartments = async (req, res) => {
+  try {
+    // Get departments of ward-related staff (Ward Manager, Ward Nurse, etc.)
+    const departments = await User.distinct("dept", { 
+      $or: [
+        { role: "Ward" },
+        { role: "Nurse", dept: /ward|inpatient/i }
+      ],
+      dept: { $exists: true, $ne: null, $ne: "" }
+    });
+    res.status(200).json({ 
+      success: true, 
+      departments: departments.filter(d => d && d.trim()) 
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Get ward staff by department (Ward Managers, Ward Nurses, etc.)
+const getWardStaffByDepartment = async (req, res) => {
+  try {
+    const { department } = req.query;
+    if (!department) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Department parameter is required" 
+      });
+    }
+    
+    // Find staff in ward-related roles OR nurses in ward departments
+    const staff = await User.find({ 
+      dept: department,
+      $or: [
+        { role: "Ward" },
+        { role: "Nurse" }
+      ]
+    }).select("name email dept role");
+    
+    res.status(200).json({ 
+      success: true, 
+      count: staff.length,
+      staff: staff
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 module.exports = { 
   getStaffList, 
   createStaff, 
   updateStaff,
   getNurseDepartments,
-  getNursesByDepartment
+  getNursesByDepartment,
+  getWardDepartments,
+  getWardStaffByDepartment
 };
