@@ -21,6 +21,9 @@ const NurseAssignmentSchema = new mongoose.Schema(
       spo2: { type: String, default: "" },
     },
     assignedBy: { type: String, default: "" },
+    doctorInstructions: { type: String, default: "" },
+    nurseResponse: { type: String, default: "" },
+    nurseAccepted: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

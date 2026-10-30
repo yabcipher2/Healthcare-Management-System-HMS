@@ -27,6 +27,7 @@ const logAudit = async (req, action, module, details, targetId = "", targetType 
 const getDoctorCases = async (req, res) => {
   try {
     const doctorUserId = req.user._id;
+    const NurseAssignment = require("../models/NurseAssignment");
     const staffProfile = await StaffProfile.findOne({ profileId: doctorUserId, jobTitle: "Doctor" });
     const doctorDept = staffProfile?.dept || "";
 
@@ -44,7 +45,23 @@ const getDoctorCases = async (req, res) => {
         "cardId patientName firstName middleName lastName age gender triage consultation currentStatus laboratory pharmacy triageDepartment",
       );
 
-    res.status(200).json({ success: true, count: cases.length, data: cases });
+    // Enrich with nurse assignment data
+    const enrichedCases = await Promise.all(
+      cases.map(async (patientCase) => {
+        const nurseAssignment = await NurseAssignment.findOne({ patientId: patientCase._id });
+        return {
+          ...patientCase.toObject(),
+          assignedNurseName: nurseAssignment?.assignedStation || null,
+          assignedNurseDepartment: nurseAssignment?.assignedStation || null,
+          doctorInstructions: nurseAssignment?.doctorInstructions || "",
+          carePlan: nurseAssignment?.carePlan || "",
+          nurseAccepted: nurseAssignment?.nurseAccepted || false,
+          nurseResponse: nurseAssignment?.nurseResponse || "",
+        };
+      })
+    );
+
+    res.status(200).json({ success: true, count: enrichedCases.length, data: enrichedCases });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -53,6 +70,7 @@ const getDoctorCases = async (req, res) => {
 const getDoctorPatient = async (req, res) => {
   try {
     const doctorUserId = req.user._id;
+    const NurseAssignment = require("../models/NurseAssignment");
     const staffProfile = await StaffProfile.findOne({ profileId: doctorUserId, jobTitle: "Doctor" });
     const doctorDept = staffProfile?.dept || "";
 
@@ -79,7 +97,19 @@ const getDoctorPatient = async (req, res) => {
         });
     }
 
-    res.status(200).json({ success: true, data: patient });
+    // Get nurse assignment data
+    const nurseAssignment = await NurseAssignment.findOne({ patientId: patient._id });
+    const enrichedPatient = {
+      ...patient.toObject(),
+      assignedNurseName: nurseAssignment?.assignedStation || null,
+      assignedNurseDepartment: nurseAssignment?.assignedStation || null,
+      doctorInstructions: nurseAssignment?.doctorInstructions || "",
+      carePlan: nurseAssignment?.carePlan || "",
+      nurseAccepted: nurseAssignment?.nurseAccepted || false,
+      nurseResponse: nurseAssignment?.nurseResponse || "",
+    };
+
+    res.status(200).json({ success: true, data: enrichedPatient });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -304,6 +334,9 @@ const submitConsultation = async (req, res) => {
       historyPresentIllness,
       physicalExamination,
       icd11Diagnosis,
+      pastMedicalHistory,
+      familyHistory,
+      allergies,
       labRequests,
       prescriptionLines,
     } = req.body;
@@ -312,6 +345,12 @@ const submitConsultation = async (req, res) => {
       symptoms: historyPresentIllness || patient.consultation?.symptoms,
       doctorNotes: physicalExamination || patient.consultation?.doctorNotes,
       diagnosis: icd11Diagnosis || patient.consultation?.diagnosis,
+      historyPresentIllness: historyPresentIllness || patient.consultation?.historyPresentIllness || "",
+      physicalExamination: physicalExamination || patient.consultation?.physicalExamination || "",
+      icd11Diagnosis: icd11Diagnosis || patient.consultation?.icd11Diagnosis || "",
+      pastMedicalHistory: pastMedicalHistory || patient.consultation?.pastMedicalHistory || "",
+      familyHistory: familyHistory || patient.consultation?.familyHistory || "",
+      allergies: allergies || patient.consultation?.allergies || "",
       assignedDoctor: req.user?._id || patient.consultation?.assignedDoctor,
     };
 
@@ -374,6 +413,197 @@ const submitConsultation = async (req, res) => {
   }
 };
 
+// Get patient history
+const getPatientHistory = async (req, res) => {
+  try {
+    const patientId = req.params.id;
+    
+    // Get the current patient record
+    const patient = await PatientRecord.findById(patientId);
+    if (!patient) {
+      return res.status(404).json({ 
+        success: false, 
+        message: "Patient not found" 
+      });
+    }
+
+    // Find all historical records for this patient (by card ID or patient name)
+    const history = await PatientRecord.find({
+      $or: [
+        { cardId: patient.cardId },
+        { patientName: patient.patientName }
+      ],
+      _id: { $ne: patientId } // Exclude current record
+    })
+    .sort({ createdAt: -1 })
+    .select('cardId patientName age gender triage consultation laboratory pharmacy currentStatus createdAt updatedAt')
+    .limit(10);
+
+    res.status(200).json({ 
+      success: true, 
+      data: history 
+    });
+  } catch (error) {
+    console.error('Error fetching patient history:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: error.message 
+    });
+  }
+};
+
+// Get recommended nurse for patient
+const getRecommendedNurse = async (req, res) => {
+  try {
+    const patientId = req.params.id;
+    
+    // Get the patient record
+    const patient = await PatientRecord.findById(patientId);
+    if (!patient) {
+      return res.status(404).json({ 
+        success: false, 
+        message: "Patient not found" 
+      });
+    }
+
+    // Get the patient's department
+    const department = patient.triageDepartment || patient.consultation?.department;
+    
+    if (!department) {
+      return res.status(200).json({ 
+        success: true, 
+        data: null,
+        message: "No department assigned to patient"
+      });
+    }
+
+    // Find nurses in the same department with the least workload
+    const nurses = await User.find({ 
+      role: "Nurse",
+      dept: department
+    }).select("name email dept");
+
+    if (nurses.length === 0) {
+      return res.status(200).json({ 
+        success: true, 
+        data: null,
+        message: `No nurses available in ${department} department`
+      });
+    }
+
+    // For now, return the first nurse (can be enhanced with workload calculation)
+    const recommendedNurse = {
+      name: nurses[0].name,
+      email: nurses[0].email,
+      department: nurses[0].dept,
+      reason: "Available in patient's department"
+    };
+
+    res.status(200).json({ 
+      success: true, 
+      data: recommendedNurse 
+    });
+  } catch (error) {
+    console.error('Error getting recommended nurse:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: error.message 
+    });
+  }
+};
+
+// Create laboratory order from doctor
+const createDoctorLabOrder = async (req, res) => {
+  try {
+    const patientId = req.params.id;
+    const { dispatchedTests, authorizingPhysician, linkedPatient, clinicalSummary } = req.body;
+    
+    const LabOrder = require("../models/LabOrder");
+    
+    // Get patient details
+    const patient = await PatientRecord.findById(patientId);
+    if (!patient) {
+      return res.status(404).json({ 
+        success: false, 
+        message: "Patient not found" 
+      });
+    }
+    
+    // Create lab order
+    const order = await LabOrder.create({
+      accessionId: `LAB-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+      patientCardId: patient.cardId,
+      patientName: patient.patientName || `${patient.firstName} ${patient.lastName}`,
+      age: patient.age,
+      gender: patient.gender,
+      requestedBy: authorizingPhysician || req.user?.name || "Doctor",
+      timestamp: new Date().toISOString(),
+      urgency: "Routine",
+      panels: dispatchedTests || [],
+      specimen: "Pending Specimen",
+      status: "Pending",
+      linkedPatient: linkedPatient || patientId,
+      clinicalSummary: clinicalSummary || "",
+    });
+    
+    // Update patient record
+    await PatientRecord.findByIdAndUpdate(patientId, {
+      "laboratory.testRequests": dispatchedTests || [],
+      "laboratory.labStatus": "Pending",
+      "laboratory.clinicalSummary": clinicalSummary || "",
+      currentStatus: "Laboratory",
+    });
+    
+    await logAudit(req, "CREATE", "Laboratory", `Lab order ${order.accessionId} created by ${authorizingPhysician} for ${patient.patientName}`, order._id);
+    
+    res.status(201).json({ success: true, data: order });
+  } catch (error) {
+    console.error('Error creating lab order:', error);
+    res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+// Create radiology order from doctor
+const createDoctorRadiologyOrder = async (req, res) => {
+  try {
+    const patientId = req.params.id;
+    const { selectedRegions, clinicalIndication, urgencyLevel } = req.body;
+    
+    // Validate selectedRegions array
+    if (!Array.isArray(selectedRegions) || selectedRegions.length === 0) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Please select at least one imaging region" 
+      });
+    }
+    
+    // Get patient details
+    const patient = await PatientRecord.findById(patientId);
+    if (!patient) {
+      return res.status(404).json({ 
+        success: false, 
+        message: "Patient not found" 
+      });
+    }
+    
+    // Update patient record with radiology request
+    await PatientRecord.findByIdAndUpdate(patientId, {
+      "radiology.imagingStatus": "Pending Ultrasound Scan",
+      "radiology.requestedModalities": selectedRegions,
+      "radiology.clinicalIndication": clinicalIndication,
+      "radiology.urgencyLevel": urgencyLevel || "Routine",
+      currentStatus: "Radiology",
+    });
+    
+    await logAudit(req, "CREATE", "Radiology", `Radiology order for ${selectedRegions.join(", ")} created for ${patient.patientName}`, patientId);
+    
+    res.status(201).json({ success: true, message: "Radiology order created successfully" });
+  } catch (error) {
+    console.error('Error creating radiology order:', error);
+    res.status(400).json({ success: false, message: error.message });
+  }
+};
+
 module.exports = {
   getDoctorCases,
   submitConsultation,
@@ -382,4 +612,8 @@ module.exports = {
   getDoctorsByDepartment,
   dispatchToDoctor,
   getAllDepartments,
+  getPatientHistory,
+  getRecommendedNurse,
+  createDoctorLabOrder,
+  createDoctorRadiologyOrder,
 };

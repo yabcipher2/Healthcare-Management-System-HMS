@@ -31,6 +31,7 @@ export default function NursePage({ onLogout }) {
   const [activeTab, setActiveTab] = useState("dashboard");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedPatient, setSelectedPatient] = useState(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   // Core data structure tracking active care assignments
   const [assignedPatients, setAssignedPatients] = useState([]);
@@ -93,13 +94,14 @@ export default function NursePage({ onLogout }) {
   const [treatmentLog, setTreatmentLog] = useState({
     medicationAdministered: false,
     nurseNotes: "",
+    nurseSummary: "",
     careStatusUpdate: "In Progress",
     doctorInstructions: "",
     nurseResponse: "",
     nurseAccepted: false,
   });
 
-  const fetchAssignments = async () => {
+  const fetchAssignments = useCallback(async () => {
     try {
       setLoading(true);
       const response = await fetch(`${API_URL}/api/nurse`, {
@@ -135,14 +137,14 @@ export default function NursePage({ onLogout }) {
     } finally {
       setLoading(false);
     }
-  };
-
-  useEffect(() => {
-    fetchAssignments();
   }, [API_URL, token]);
 
   useEffect(() => {
-    const interval = setInterval(fetchAssignments, 3000);
+    fetchAssignments();
+  }, [fetchAssignments]);
+
+  useEffect(() => {
+    const interval = setInterval(fetchAssignments, 30000);
     return () => clearInterval(interval);
   }, [fetchAssignments]);
 
@@ -152,6 +154,7 @@ export default function NursePage({ onLogout }) {
       setTreatmentLog({
         medicationAdministered: selectedPatient.medicationAdministered || false,
         nurseNotes: selectedPatient.nurseNotes || "",
+        nurseSummary: selectedPatient.nurseNotes || "",
         careStatusUpdate: selectedPatient.status || "In Progress",
         doctorInstructions: selectedPatient.doctorInstructions || "",
         nurseResponse: selectedPatient.nurseResponse || "",
@@ -251,6 +254,7 @@ export default function NursePage({ onLogout }) {
 
   const handleSelectPatient = (patient) => {
     setSelectedPatient(patient);
+    setIsModalOpen(true);
   };
 
   const handleUpdateCarePlan = async (e) => {
@@ -267,7 +271,7 @@ export default function NursePage({ onLogout }) {
             Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({
-            nurseNotes: treatmentLog.nurseNotes,
+            nurseNotes: treatmentLog.nurseSummary || treatmentLog.nurseNotes,
             medicationAdministered: treatmentLog.medicationAdministered,
           }),
         },
@@ -302,6 +306,7 @@ export default function NursePage({ onLogout }) {
       });
       loadAuditAlertsCount();
       setSelectedPatient(null);
+      setIsModalOpen(false);
     } catch (err) {
       alert(`Error saving: ${err.message}`);
     } finally {
@@ -551,110 +556,148 @@ export default function NursePage({ onLogout }) {
           )}
 
           {activeTab === "assigned" && (
-            <div className="grid lg:grid-cols-12 gap-8 animate-fadeIn">
-              {/* LEFT CONTAINER: ASSIGNED PATIENT TRACKER LIST */}
-              <div className="lg:col-span-5 space-y-4">
-                <div className="bg-[#0E1B17] rounded-xl p-4 border border-white/20 shadow-sm">
-                  <span className="font-mono text-[11px] font-bold text-[#94A3B8] uppercase tracking-wider block mb-2.5">
-                    Available Assigned Workload Array
-                  </span>
+            <div className="space-y-6 animate-fadeIn">
+              <div className="bg-[#0E1B17] rounded-3xl border border-white/20 shadow-sm overflow-hidden">
+                <div className="p-6 border-b border-white/10 flex items-center justify-between bg-[#0E1B17]/30">
+                  <div>
+                    <h1 className="text-2xl font-black text-white">
+                      Assigned Workload
+                    </h1>
+                    <p className="text-[#94A3B8] font-medium mt-1">
+                      Active patient assignments requiring nursing care
+                    </p>
+                  </div>
                   <div className="relative">
                     <Search className="absolute left-3.5 top-1/2 transform -translate-y-1/2 h-4 w-4 text-[#94A3B8]" />
                     <input
                       type="text"
-                      placeholder="Filter assigned patients..."
+                      placeholder="Filter patients..."
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      className="w-full pl-10 pr-4 py-1.5 bg-[#0E1B17] border border-white/20 rounded-lg text-[11px] text-white focus:outline-none focus:ring-1 focus:ring-emerald-500 font-mono"
+                      className="w-64 pl-10 pr-4 py-1.5 bg-[#0E1B17] border border-white/20 rounded-lg text-[11px] text-white focus:outline-none focus:ring-1 focus:ring-emerald-500 font-mono"
                     />
                   </div>
                 </div>
 
-                <div className="space-y-3">
-                  {loading ? (
-                    <div className="text-center p-12 bg-[#0E1B17] border border-white/20 rounded-xl font-mono text-[#94A3B8] shadow-sm">
-                      Syncing structural updates...
-                    </div>
-                  ) : error ? (
-                    <div className="p-4 bg-[#EF4444]/10 border border-[#EF4444]/30 rounded-xl font-mono text-[#EF4444] text-center">
-                      {error}
-                    </div>
-                  ) : filteredPatients.length === 0 ? (
-                    <div className="p-12 text-center bg-[#0E1B17] border border-white/20 rounded-xl font-mono text-[#94A3B8] shadow-sm">
-                      No active assignments detected.
-                    </div>
-                  ) : (
-                    filteredPatients.map((patient) => (
-                      <div
-                        key={patient.id}
-                        onClick={() => handleSelectPatient(patient)}
-                        className={`p-4 bg-[#0E1B17] border rounded-xl cursor-pointer transition-all ${
-                          selectedPatient?.id === patient.id
-                            ? "border-emerald-500 ring-1 ring-emerald-500/10 shadow-md"
-                            : "border-white/20 shadow-sm hover:border-white/20"
-                        }`}
-                      >
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <h4 className="font-black text-white text-[14px] tracking-tight uppercase leading-none">
-                              {patient.name}
-                            </h4>
-                            <span className="text-[9px] font-mono font-bold text-[#94A3B8] block mt-1">
-                              TOKEN: {patient.cardId}
-                            </span>
-                          </div>
-                          <span
-                            className={`px-2 py-0.5 rounded text-[8px] font-mono font-bold uppercase tracking-wider ${
-                              patient.status.includes("Pending")
-                                ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
-                                : "bg-[#10B981]/20 text-[#94A3B8] border border-[#10B981]/30"
-                            }`}
+                {loading ? (
+                  <div className="p-10 text-center text-xs font-black text-[#94A3B8] uppercase tracking-wider">
+                    Syncing structural updates...
+                  </div>
+                ) : error ? (
+                  <div className="mx-6 mt-6 p-4 bg-[#EF4444]/10 border border-[#EF4444]/30 rounded-xl text-xs font-bold text-[#EF4444]">
+                    {error}
+                  </div>
+                ) : filteredPatients.length === 0 ? (
+                  <div className="p-10 text-center text-xs font-black text-[#94A3B8] uppercase tracking-wider">
+                    No active assignments detected.
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead className="bg-[#0E1B17]/50 border-b border-white/10">
+                        <tr>
+                          <th className="px-3 py-3 text-left text-[9px] font-black text-[#94A3B8] uppercase tracking-wider font-mono">
+                            Patient
+                          </th>
+                          <th className="px-3 py-3 text-left text-[9px] font-black text-[#94A3B8] uppercase tracking-wider font-mono">
+                            Token
+                          </th>
+                          <th className="px-3 py-3 text-left text-[9px] font-black text-[#94A3B8] uppercase tracking-wider font-mono">
+                            Status
+                          </th>
+                          <th className="px-3 py-3 text-left text-[9px] font-black text-[#94A3B8] uppercase tracking-wider font-mono">
+                            Station
+                          </th>
+                          <th className="px-3 py-3 text-left text-[9px] font-black text-[#94A3B8] uppercase tracking-wider font-mono">
+                            Doctor
+                          </th>
+                          <th className="px-3 py-3 text-left text-[9px] font-black text-[#94A3B8] uppercase tracking-wider font-mono">
+                            Vitals
+                          </th>
+                          <th className="px-3 py-3 text-center text-[9px] font-black text-[#94A3B8] uppercase tracking-wider font-mono">
+                            Action
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-white/10">
+                        {filteredPatients.map((patient) => (
+                          <tr
+                            key={patient.id}
+                            className="hover:bg-[#0E1B17]/30 transition-colors h-[60px]"
                           >
-                            {patient.status}
-                          </span>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-white/10 text-[10px] font-mono">
-                          <div className="text-[#94A3B8]">
-                            <span className="font-bold text-[#94A3B8]">
-                              LCO:
-                            </span>{" "}
-                            {patient.bedAllocation}
-                          </div>
-                          <div className="text-[#94A3B8] text-right">
-                            <span className="font-bold text-[#94A3B8]">
-                              PHY:
-                            </span>{" "}
-                            {patient.assignedDoctor}
-                          </div>
-                        </div>
-
-                        <div className="mt-2 pt-2 text-[9px] font-mono text-[#10B981] flex items-center gap-1.5 opacity-80 uppercase font-black">
-                          <Activity size={10} />
-                          {patient.vitalsSummary}
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
+                            <td className="px-3 py-3 whitespace-nowrap">
+                              <div className="font-black text-white text-[11px] uppercase leading-tight">
+                                {patient.name}
+                              </div>
+                              <div className="text-[9px] text-[#94A3B8] font-mono mt-0.5">
+                                {patient.age}Y / {patient.gender?.substring(0, 1)}
+                              </div>
+                            </td>
+                            <td className="px-3 py-3 whitespace-nowrap">
+                              <span className="text-[9px] font-mono font-bold text-[#10B981]">
+                                {patient.cardId}
+                              </span>
+                            </td>
+                            <td className="px-3 py-3 whitespace-nowrap">
+                              <span
+                                className={`inline-block px-2 py-0.5 rounded text-[8px] font-mono font-bold uppercase whitespace-nowrap ${
+                                  patient.status.includes("Pending")
+                                    ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                                    : "bg-[#10B981]/20 text-[#10B981] border border-[#10B981]/30"
+                                }`}
+                              >
+                                {patient.status}
+                              </span>
+                            </td>
+                            <td className="px-3 py-3 whitespace-nowrap">
+                              <span className="text-[10px] font-mono text-white">
+                                {patient.bedAllocation}
+                              </span>
+                            </td>
+                            <td className="px-3 py-3 whitespace-nowrap">
+                              <span className="text-[10px] font-mono text-white">
+                                {patient.assignedDoctor}
+                              </span>
+                            </td>
+                            <td className="px-3 py-3 whitespace-nowrap">
+                              <div className="text-[9px] font-mono text-[#10B981] font-bold">
+                                {patient.vitalsSummary}
+                              </div>
+                            </td>
+                            <td className="px-3 py-3 text-center whitespace-nowrap">
+                              <button
+                                onClick={() => handleSelectPatient(patient)}
+                                className="px-3 py-1 bg-[#10B981] hover:bg-[#0D9668] text-white font-black uppercase tracking-widest text-[8px] rounded-md shadow-sm transition-all font-mono"
+                              >
+                                Bind
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
+            </div>
+          )}
 
-              {/* RIGHT CONTAINER: TREATMENT FLOW & MEDICATION LOGGING WORKSPACE */}
-              <div className="lg:col-span-7">
-                {selectedPatient ? (
-                  <form
-                    onSubmit={handleUpdateCarePlan}
-                    className="bg-[#0E1B17] rounded-xl border border-white/20 shadow-xl overflow-hidden"
-                  >
-                    <div className="p-4 bg-[#0E1B17] text-white flex justify-between items-center border-b border-slate-700">
-                      <div>
-                        <span className="text-[9px] font-black tracking-widest text-[#10B981] block uppercase font-mono">
-                          ACTIVE CLINICAL CONTEXT
-                        </span>
-                        <h2 className="text-[14px] font-black text-white mt-0.5 tracking-tight uppercase font-mono">
-                          {selectedPatient.name}
-                        </h2>
-                      </div>
+          {/* PATIENT CARE MODAL */}
+          {isModalOpen && selectedPatient && (
+            <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-6">
+              <div className="bg-[#050B09] rounded-2xl border border-white/20 shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+                <form onSubmit={handleUpdateCarePlan}>
+                  {/* Modal Header */}
+                  <div className="sticky top-0 bg-[#0E1B17] p-4 text-white flex justify-between items-center border-b border-slate-700 z-10">
+                    <div>
+                      <span className="text-[9px] font-black tracking-widest text-[#10B981] block uppercase font-mono">
+                        ACTIVE CLINICAL CONTEXT
+                      </span>
+                      <h2 className="text-[14px] font-black text-white mt-0.5 tracking-tight uppercase font-mono">
+                        {selectedPatient.name}
+                      </h2>
+                    </div>
+                    <div className="flex items-center gap-4">
                       <div className="text-right text-[10px] text-[#94A3B8] font-mono">
                         <span>
                           Age/Sex:{" "}
@@ -664,182 +707,208 @@ export default function NursePage({ onLogout }) {
                           </strong>
                         </span>
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsModalOpen(false);
+                          setSelectedPatient(null);
+                        }}
+                        className="p-2 hover:bg-white/10 rounded-lg transition-colors"
+                      >
+                        <X size={18} className="text-white" />
+                      </button>
                     </div>
+                  </div>
 
-                    <div className="bg-[#EF4444]/10/70 border-b border-rose-100 px-6 py-3 text-xs text-[#EF4444] flex items-center gap-2 font-medium">
-                      <AlertCircle
-                        size={15}
-                        className="text-[#EF4444] shrink-0"
-                      />
-                      <p>
-                        <strong>Allergy Alerts:</strong>{" "}
-                        {selectedPatient.allergies}
-                      </p>
-                    </div>
+                  {/* Allergy Alert */}
+                  <div className="bg-[#EF4444]/10 border-b border-[#EF4444]/20 px-6 py-3 text-xs text-[#EF4444] flex items-center gap-2 font-medium">
+                    <AlertCircle
+                      size={15}
+                      className="text-[#EF4444] shrink-0"
+                    />
+                    <p>
+                      <strong>Allergy Alerts:</strong>{" "}
+                      {selectedPatient.allergies}
+                    </p>
+                  </div>
 
-                    <div className="p-8 space-y-6">
-                      {selectedPatient.doctorInstructions && (
-                        <div className="bg-[#10B981]/10/50 border border-[#10B981]/20 rounded-xl p-5 space-y-3">
-                          <h4 className="text-[11px] font-black uppercase tracking-wider text-[#10B981] flex items-center gap-1.5">
-                            <FileText size={14} /> Physician Observation Matrix
-                          </h4>
-                          <p className="text-[11px] text-[#10B981]/90 font-medium leading-relaxed bg-[#0E1B17]/90 p-3 rounded-lg border border-[#10B981]/20 italic font-mono">
-                            {selectedPatient.doctorInstructions ||
-                              "No instruction received yet."}
-                          </p>
+                  {/* Modal Body */}
+                  <div className="p-8 space-y-6">
+                    {selectedPatient.doctorInstructions && (
+                      <div className="bg-[#10B981]/10 border border-[#10B981]/20 rounded-xl p-5 space-y-3">
+                        <h4 className="text-[11px] font-black uppercase tracking-wider text-[#10B981] flex items-center gap-1.5">
+                          <FileText size={14} /> Physician Observation Matrix
+                        </h4>
+                        <p className="text-[11px] text-[#10B981]/90 font-medium leading-relaxed bg-[#0E1B17]/90 p-3 rounded-lg border border-[#10B981]/20 italic font-mono">
+                          {selectedPatient.doctorInstructions ||
+                            "No instruction received yet."}
+                        </p>
 
-                          <div className="flex items-center gap-2">
-                            <span className="text-[10px] font-mono font-bold uppercase text-[#10B981]">
-                              Status:
-                            </span>
-                            <span
-                              className={`text-[10px] font-mono font-black uppercase px-2 py-0.5 rounded ${
-                                selectedPatient.nurseAccepted
-                                  ? "bg-[#10B981]/20 text-[#10B981]"
-                                  : "bg-amber-500/20 text-amber-300"
-                              }`}
-                            >
-                              {selectedPatient.nurseAccepted
-                                ? "ACCEPTED"
-                                : "PENDING REVIEW"}
-                            </span>
-                          </div>
-                          {!selectedPatient.nurseAccepted && (
-                            <button
-                              type="button" // Changed to type="button" to prevent form submission
-                              onClick={handleAcceptInstructions}
-                              disabled={saving}
-                              className="px-4 py-2 bg-[#10B981] hover:bg-[#0D9668] text-white font-black uppercase tracking-widest text-[10px] rounded-lg shadow-sm disabled:opacity-50 transition-all font-mono"
-                            >
-                              Accept Instructions
-                            </button>
-                          )}
-                          {selectedPatient.nurseAccepted &&
-                            !selectedPatient.nurseResponse && (
-                              <div className="space-y-2">
-                                <textarea
-                                  rows="2"
-                                  value={treatmentLog.nurseResponse || ""}
-                                  onChange={(e) =>
-                                    setTreatmentLog((prev) => ({
-                                      ...prev,
-                                      nurseResponse: e.target.value,
-                                    }))
-                                  }
-                                  placeholder="Write response/feedback for doctor..."
-                                  className="w-full bg-[#0E1B17] border border-[#10B981]/30 px-3 py-2 rounded-lg text-[11px] text-white focus:outline-none focus:ring-1 focus:ring-emerald-500 font-mono"
-                                />
-                                <button
-                                  type="button"
-                                  onClick={handleSendNurseResponse}
-                                  disabled={saving}
-                                  className="px-3 py-1.5 bg-[#0D9668] hover:bg-[#0D9668] text-white font-black uppercase tracking-widest text-[10px] rounded-lg shadow-sm disabled:opacity-50 font-mono"
-                                >
-                                  Send Response
-                                </button>
-                              </div>
-                            )}
-                          {selectedPatient.nurseResponse && ( // Display nurse's response if available
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-mono font-bold uppercase text-[#10B981]">
+                            Status:
+                          </span>
+                          <span
+                            className={`text-[10px] font-mono font-black uppercase px-2 py-0.5 rounded ${
+                              selectedPatient.nurseAccepted
+                                ? "bg-[#10B981]/20 text-[#10B981]"
+                                : "bg-amber-500/20 text-amber-300"
+                            }`}
+                          >
+                            {selectedPatient.nurseAccepted
+                              ? "ACCEPTED"
+                              : "PENDING REVIEW"}
+                          </span>
+                        </div>
+                        {!selectedPatient.nurseAccepted && (
+                          <button
+                            type="button"
+                            onClick={handleAcceptInstructions}
+                            disabled={saving}
+                            className="px-4 py-2 bg-[#10B981] hover:bg-[#0D9668] text-white font-black uppercase tracking-widest text-[10px] rounded-lg shadow-sm disabled:opacity-50 transition-all font-mono"
+                          >
+                            Accept Instructions
+                          </button>
+                        )}
+                        {selectedPatient.nurseAccepted &&
+                          !selectedPatient.nurseResponse && (
                             <div className="space-y-2">
-                              <h5 className="text-[10px] font-bold uppercase text-[#10B981]">
-                                Your Response to Doctor:
-                              </h5>
-                              <p className="text-[11px] text-slate-200 bg-[#0E1B17] p-3 rounded-lg border border-[#10B981]/20 leading-relaxed italic border-l-4 border-l-emerald-400 font-mono">
-                                "{selectedPatient.nurseResponse}"
-                              </p>
-                              <span className="text-[8px] font-mono font-bold bg-[#10B981]/20 px-2 py-0.5 rounded text-[#94A3B8] uppercase">
-                                Dispatched
-                              </span>
+                              <textarea
+                                rows="2"
+                                value={treatmentLog.nurseResponse || ""}
+                                onChange={(e) =>
+                                  setTreatmentLog((prev) => ({
+                                    ...prev,
+                                    nurseResponse: e.target.value,
+                                  }))
+                                }
+                                placeholder="Write response/feedback for doctor..."
+                                className="w-full bg-[#0E1B17] border border-[#10B981]/30 px-3 py-2 rounded-lg text-[11px] text-white focus:outline-none focus:ring-1 focus:ring-emerald-500 font-mono"
+                              />
+                              <button
+                                type="button"
+                                onClick={handleSendNurseResponse}
+                                disabled={saving}
+                                className="px-3 py-1.5 bg-[#0D9668] hover:bg-[#0D9668] text-white font-black uppercase tracking-widest text-[10px] rounded-lg shadow-sm disabled:opacity-50 font-mono"
+                              >
+                                Send Response
+                              </button>
                             </div>
                           )}
-                        </div>
-                      )}
-
-                      <div className="space-y-3">
-                        <label className="text-[10px] font-black uppercase tracking-wider text-[#94A3B8] block font-mono">
-                          Care Execution Check
-                        </label>
-                        <label className="flex items-start gap-3 p-4 border border-white/20 rounded-xl bg-[#0E1B17]/50 hover:bg-[#0E1B17] cursor-pointer transition-all">
-                          <input
-                            type="checkbox"
-                            checked={treatmentLog.medicationAdministered}
-                            onChange={(e) =>
-                              setTreatmentLog((prev) => ({
-                                ...prev,
-                                medicationAdministered: e.target.checked,
-                              }))
-                            }
-                            className="mt-0.5 h-4 w-4 text-[#10B981] border-white/20 rounded focus:ring-emerald-500"
-                          />
-                          <div>
-                            <span className="text-[11px] font-black text-white flex items-center gap-1 uppercase">
-                              <HeartPulse
-                                size={13}
-                                className="text-amber-300"
-                              />
-                              Medication Administration Verify
-                            </span>
-                            <p className="text-[11px] text-[#94A3B8] mt-0.5">
-                              Check this off only if prescribed medications or
-                              interventions ordered by the doctor above have
-                              been completely executed.
+                        {selectedPatient.nurseResponse && (
+                          <div className="space-y-2">
+                            <h5 className="text-[10px] font-bold uppercase text-[#10B981]">
+                              Your Response to Doctor:
+                            </h5>
+                            <p className="text-[11px] text-slate-200 bg-[#0E1B17] p-3 rounded-lg border border-[#10B981]/20 leading-relaxed italic border-l-4 border-l-emerald-400 font-mono">
+                              "{selectedPatient.nurseResponse}"
                             </p>
+                            <span className="text-[8px] font-mono font-bold bg-[#10B981]/20 px-2 py-0.5 rounded text-[#94A3B8] uppercase">
+                              Dispatched
+                            </span>
                           </div>
-                        </label>
+                        )}
                       </div>
+                    )}
 
-                      <div className="space-y-1.5">
-                        <label className="text-[10px] font-black uppercase tracking-wider text-[#94A3B8] block font-mono">
-                          Update Patient Clinical Routing State
-                        </label>
-                        <select
-                          value={treatmentLog.careStatusUpdate}
+                    <div className="space-y-3">
+                      <label className="text-[10px] font-black uppercase tracking-wider text-[#94A3B8] block font-mono">
+                        Care Execution Check
+                      </label>
+                      <label className="flex items-start gap-3 p-4 border border-white/20 rounded-xl bg-[#0E1B17]/50 hover:bg-[#0E1B17] cursor-pointer transition-all">
+                        <input
+                          type="checkbox"
+                          checked={treatmentLog.medicationAdministered}
                           onChange={(e) =>
                             setTreatmentLog((prev) => ({
                               ...prev,
-                              careStatusUpdate: e.target.value,
+                              medicationAdministered: e.target.checked,
                             }))
                           }
-                          className="w-full bg-[#0E1B17] border border-white/20 px-4 py-2.5 rounded-lg text-[11px] text-white focus:outline-none focus:ring-1 focus:ring-emerald-500 font-mono font-black"
-                        >
-                          <option value="In Progress / Under Ward Care">
-                            In Progress / Under Ward Care
-                          </option>
-                          <option value="Observations Complete / Stable">
-                            Observations Complete / Stable
-                          </option>
-                          <option value="Escalated: Pending Doctor Re-evaluation">
-                            Escalated: Pending Doctor Re-evaluation
-                          </option>
-                        </select>
-                        <button
-                          type="button"
-                          onClick={handleStatusUpdate}
-                          disabled={saving}
-                          className="w-full mt-2 py-2.5 bg-[#0E1B17] hover:bg-[#050B09] text-white font-black uppercase tracking-widest text-[10px] rounded-lg transition-all shadow-md flex items-center justify-center gap-2 disabled:opacity-50 font-mono"
-                        >
-                          <CheckCircle2 size={14} /> Update Status
-                        </button>
-                      </div>
+                          className="mt-0.5 h-4 w-4 text-[#10B981] border-white/20 rounded focus:ring-emerald-500"
+                        />
+                        <div>
+                          <span className="text-[11px] font-black text-white flex items-center gap-1 uppercase">
+                            <HeartPulse
+                              size={13}
+                              className="text-amber-300"
+                            />
+                            Medication Administration Verify
+                          </span>
+                          <p className="text-[11px] text-[#94A3B8] mt-0.5">
+                            Check this off only if prescribed medications or
+                            interventions ordered by the doctor above have
+                            been completely executed.
+                          </p>
+                        </div>
+                      </label>
+                    </div>
 
-                      <button
-                        type="submit"
-                        disabled={saving}
-                        className="w-full py-3.5 bg-[#10B981] hover:bg-[#0D9668] text-white font-black uppercase tracking-widest text-[11px] rounded-lg transition-all shadow-lg shadow-[#10B981]/10 flex items-center justify-center gap-2 disabled:opacity-50 font-mono"
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-black uppercase tracking-wider text-[#94A3B8] block font-mono">
+                        Nursing Care Summary
+                      </label>
+                      <textarea
+                        rows="4"
+                        value={treatmentLog.nurseSummary || ""}
+                        onChange={(e) =>
+                          setTreatmentLog((prev) => ({
+                            ...prev,
+                            nurseSummary: e.target.value,
+                          }))
+                        }
+                        placeholder="Document patient observations, care activities, and clinical notes..."
+                        className="w-full bg-[#0E1B17] border border-white/20 px-3 py-2.5 rounded-lg text-[11px] text-white focus:outline-none focus:ring-1 focus:ring-emerald-500 font-mono leading-relaxed"
+                      />
+                      <p className="text-[9px] text-[#94A3B8] font-mono">
+                        Record detailed nursing observations, interventions performed, patient response, and any concerns
+                      </p>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-black uppercase tracking-wider text-[#94A3B8] block font-mono">
+                        Update Patient Clinical Routing State
+                      </label>
+                      <select
+                        value={treatmentLog.careStatusUpdate}
+                        onChange={(e) =>
+                          setTreatmentLog((prev) => ({
+                            ...prev,
+                            careStatusUpdate: e.target.value,
+                          }))
+                        }
+                        className="w-full bg-[#0E1B17] border border-white/20 px-4 py-2.5 rounded-lg text-[11px] text-white focus:outline-none focus:ring-1 focus:ring-emerald-500 font-mono font-black"
                       >
-                        <CheckCircle2 size={16} /> Save & Broadcast Results to
-                        Doctor
+                        <option value="In Progress / Under Ward Care">
+                          In Progress / Under Ward Care
+                        </option>
+                        <option value="Observations Complete / Stable">
+                          Observations Complete / Stable
+                        </option>
+                        <option value="Escalated: Pending Doctor Re-evaluation">
+                          Escalated: Pending Doctor Re-evaluation
+                        </option>
+                      </select>
+                      <button
+                        type="button"
+                        onClick={handleStatusUpdate}
+                        disabled={saving}
+                        className="w-full mt-2 py-2.5 bg-[#0E1B17] hover:bg-[#050B09] text-white font-black uppercase tracking-widest text-[10px] rounded-lg transition-all shadow-md flex items-center justify-center gap-2 disabled:opacity-50 font-mono"
+                      >
+                        <CheckCircle2 size={14} /> Update Status
                       </button>
                     </div>
-                  </form>
-                ) : (
-                  <div className="h-96 border-2 border-dashed border-white/20 rounded-2xl flex flex-col justify-center items-center text-[#94A3B8] bg-[#0E1B17] shadow-sm">
-                    <Clock size={36} className="text-slate-300 mb-2" />
-                    <p className="text-[10px] font-bold uppercase tracking-wider">
-                      Select an active ward allocation to handle execution
-                    </p>
+
+                    <button
+                      type="submit"
+                      disabled={saving}
+                      className="w-full py-3.5 bg-[#10B981] hover:bg-[#0D9668] text-white font-black uppercase tracking-widest text-[11px] rounded-lg transition-all shadow-lg shadow-[#10B981]/10 flex items-center justify-center gap-2 disabled:opacity-50 font-mono"
+                    >
+                      <CheckCircle2 size={16} /> Save & Broadcast Results to
+                      Doctor
+                    </button>
                   </div>
-                )}
+                </form>
               </div>
             </div>
           )}

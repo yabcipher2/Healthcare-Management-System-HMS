@@ -116,4 +116,52 @@ const updateStaff = async (req, res) => {
   }
 };
 
-module.exports = { getStaffList, createStaff, updateStaff };
+// Get all unique nurse departments
+const getNurseDepartments = async (req, res) => {
+  try {
+    const departments = await User.distinct("dept", { 
+      role: "Nurse",
+      dept: { $exists: true, $ne: null, $ne: "" }
+    });
+    res.status(200).json({ 
+      success: true, 
+      departments: departments.filter(d => d && d.trim()) 
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Get nurses by department
+const getNursesByDepartment = async (req, res) => {
+  try {
+    const { department } = req.query;
+    if (!department) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Department parameter is required" 
+      });
+    }
+    
+    const nurses = await User.find({ 
+      role: "Nurse",
+      dept: department
+    }).select("name email dept role");
+    
+    res.status(200).json({ 
+      success: true, 
+      count: nurses.length,
+      nurses 
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+module.exports = { 
+  getStaffList, 
+  createStaff, 
+  updateStaff,
+  getNurseDepartments,
+  getNursesByDepartment
+};

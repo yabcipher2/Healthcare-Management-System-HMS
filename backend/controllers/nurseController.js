@@ -73,4 +73,112 @@ const updateCareStatus = async (req, res) => {
   }
 };
 
-module.exports = { getAssignments, createAssignment, updateNurseNotes, updateCareStatus };
+const updateDoctorObservation = async (req, res) => {
+  try {
+    const patientId = req.params.id;
+    const { nurseName, department, doctorInstructions, carePlan, status } = req.body;
+
+    console.log("🔵 Doctor Observation Request Received:");
+    console.log("   Patient ID:", patientId);
+    console.log("   Nurse Name:", nurseName);
+    console.log("   Department:", department);
+    console.log("   Doctor Instructions:", doctorInstructions);
+    console.log("   Care Plan:", carePlan);
+    console.log("   Status:", status);
+
+    // Find or create nurse assignment for this patient
+    let assignment = await NurseAssignment.findOne({ patientId });
+
+    if (!assignment) {
+      // Get patient details
+      const patient = await PatientRecord.findById(patientId);
+      if (!patient) {
+        return res.status(404).json({ 
+          success: false, 
+          message: "Patient record not found." 
+        });
+      }
+
+      // Create new nurse assignment
+      assignment = await NurseAssignment.create({
+        patientId: patient._id,
+        cardId: patient.cardId,
+        patientName: patient.patientName || `${patient.firstName} ${patient.lastName}`,
+        age: patient.age,
+        gender: patient.gender,
+        assignedStation: department || patient.triageDepartment || "General",
+        assignedDoctor: req.user?.name || "Doctor",
+        status: status || "Pending Meds",
+        carePlan: carePlan || "",
+        doctorInstructions: doctorInstructions || "",
+        assignedBy: req.user?.name || "Doctor",
+      });
+      console.log("✅ Created new nurse assignment:", assignment._id);
+    } else {
+      // Update existing assignment with doctor's instructions
+      console.log("📝 Updating existing assignment:", assignment._id);
+      assignment.assignedStation = department || assignment.assignedStation;
+      assignment.assignedDoctor = req.user?.name || assignment.assignedDoctor;
+      assignment.status = status || assignment.status;
+      assignment.carePlan = carePlan || assignment.carePlan;
+      assignment.doctorInstructions = doctorInstructions || assignment.doctorInstructions;
+      await assignment.save();
+      console.log("✅ Updated assignment with doctor instructions");
+    }
+
+    res.status(200).json({ 
+      success: true, 
+      message: "Doctor instructions dispatched to nursing station.",
+      data: assignment 
+    });
+  } catch (error) {
+    console.error("Doctor observation update error:", error);
+    res.status(400).json({ 
+      success: false, 
+      message: error.message || "Failed to dispatch doctor instructions." 
+    });
+  }
+};
+
+const updateNurseResponse = async (req, res) => {
+  try {
+    const assignmentId = req.params.id;
+    const { nurseResponse, nurseAccepted } = req.body;
+
+    const assignment = await NurseAssignment.findByIdAndUpdate(
+      assignmentId,
+      { 
+        nurseResponse: nurseResponse || "",
+        nurseAccepted: nurseAccepted !== undefined ? nurseAccepted : false
+      },
+      { returnDocument: "after", runValidators: true }
+    );
+
+    if (!assignment) {
+      return res.status(404).json({ 
+        success: false, 
+        message: "Assignment not found." 
+      });
+    }
+
+    res.status(200).json({ 
+      success: true, 
+      data: assignment 
+    });
+  } catch (error) {
+    console.error("Nurse response update error:", error);
+    res.status(400).json({ 
+      success: false, 
+      message: error.message || "Failed to update nurse response." 
+    });
+  }
+};
+
+module.exports = { 
+  getAssignments, 
+  createAssignment, 
+  updateNurseNotes, 
+  updateCareStatus,
+  updateDoctorObservation,
+  updateNurseResponse
+};

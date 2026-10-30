@@ -10,6 +10,10 @@ const {
   getDoctorsByDepartment,
   getAllDepartments,
   submitConsultation,
+  getPatientHistory,
+  getRecommendedNurse,
+  createDoctorLabOrder,
+  createDoctorRadiologyOrder,
 } = require("../controllers/doctorController");
 const { protectRoute, authorizeRoles } = require("../middleware/authMiddleware");
 
@@ -31,11 +35,35 @@ router.get(
   authorizeRoles("Doctor", "Administrator"),
   getDoctorPatient,
 );
+router.get(
+  "/patient/:id/history",
+  protectRoute,
+  authorizeRoles("Doctor", "Administrator"),
+  getPatientHistory,
+);
+router.get(
+  "/patient/:id/recommended-nurse",
+  protectRoute,
+  authorizeRoles("Doctor", "Administrator"),
+  getRecommendedNurse,
+);
 router.post(
   "/:id/consultation",
   protectRoute,
   authorizeRoles("Doctor", "Administrator"),
   submitConsultation,
+);
+router.post(
+  "/:id/laboratory",
+  protectRoute,
+  authorizeRoles("Doctor", "Administrator"),
+  createDoctorLabOrder,
+);
+router.post(
+  "/:id/radiology",
+  protectRoute,
+  authorizeRoles("Doctor", "Administrator"),
+  createDoctorRadiologyOrder,
 );
 
 router.get("/departments", async (req, res) => {
