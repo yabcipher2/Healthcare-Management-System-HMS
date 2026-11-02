@@ -3,6 +3,7 @@ const router = express.Router();
 
 const User = require("../models/User");
 const Staff = require("../models/StaffProfile");
+const Appointment = require("../models/Appointment");
 const {
   getDoctorCases,
   getDoctorPatient,
@@ -16,6 +17,7 @@ const {
   createDoctorRadiologyOrder,
 } = require("../controllers/doctorController");
 const { protectRoute, authorizeRoles } = require("../middleware/authMiddleware");
+const { logAudit } = require("../controllers/auditController");
 
 router.get(
   "/cases",
@@ -141,5 +143,151 @@ router.get("/doctors/department/:department", async (req, res) => {
     return res.status(500).json({ success: false, message: error.message });
   }
 });
+
+// =====================================================
+// APPOINTMENT MANAGEMENT ROUTES
+// =====================================================
+
+/**
+ * @route   GET /api/doctor/appointments
+ * @desc    Get all appointments for the logged-in doctor
+ * @access  Private (Doctor)
+ */
+router.get(
+  "/appointments",
+  protectRoute,
+  authorizeRoles("Doctor", "Administrator"),
+  async (req, res) => {
+    try {
+      const doctorId = req.user._id;
+      const appointments = await Appointment.find({ doctorId })
+        .sort({ appointmentDate: 1, appointmentTime: 1 });
+      
+      res.status(200).json({
+        success: true,
+        count: appointments.length,
+        data: appointments,
+      });
+    } catch (error) {
+      console.error("Error fetching appointments:", error);
+      res.status(500).json({
+        success: false,
+        message: error.message || "Failed to fetch appointments",
+      });
+    }
+  }
+);
+
+/**
+ * @route   POST /api/doctor/appointments
+ * @desc    Create a new appointment
+ * @access  Private (Doctor)
+ */
+router.post(
+  "/appointments",
+  protectRoute,
+  authorizeRoles("Doctor", "Administrator"),
+  async (req, res) => {
+    try {
+      const doctorId = req.user._id;
+      const appointmentData = {
+        ...req.body,
+        doctorId,
+        createdBy: req.user.name || req.user.email,
+      };
+      
+      const appointment = await Appointment.create(appointmentData);
+      
+      res.status(201).json({
+        success: true,
+        data: appointment,
+      });
+    } catch (error) {
+      console.error("Error creating appointment:", error);
+      res.status(400).json({
+        success: false,
+        message: error.message || "Failed to create appointment",
+      });
+    }
+  }
+);
+
+/**
+ * @route   PUT /api/doctor/appointments/:id
+ * @desc    Update an existing appointment
+ * @access  Private (Doctor)
+ */
+router.put(
+  "/appointments/:id",
+  protectRoute,
+  authorizeRoles("Doctor", "Administrator"),
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const updateData = req.body;
+      
+      const appointment = await Appointment.findById(id);
+      if (!appointment) {
+        return res.status(404).json({
+          success: false,
+          message: "Appointment not found",
+        });
+      }
+      
+      // Update fields
+      Object.keys(updateData).forEach(key => {
+        appointment[key] = updateData[key];
+      });
+      
+      await appointment.save();
+      
+      res.status(200).json({
+        success: true,
+        data: appointment,
+      });
+    } catch (error) {
+      console.error("Error updating appointment:", error);
+      res.status(400).json({
+        success: false,
+        message: error.message || "Failed to update appointment",
+      });
+    }
+  }
+);
+
+/**
+ * @route   DELETE /api/doctor/appointments/:id
+ * @desc    Delete an appointment
+ * @access  Private (Doctor)
+ */
+router.delete(
+  "/appointments/:id",
+  protectRoute,
+  authorizeRoles("Doctor", "Administrator"),
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      
+      const appointment = await Appointment.findByIdAndDelete(id);
+      if (!appointment) {
+        return res.status(404).json({
+          success: false,
+          message: "Appointment not found",
+        });
+      }
+      
+      res.status(200).json({
+        success: true,
+        message: "Appointment deleted successfully",
+      });
+    } catch (error) {
+      console.error("Error deleting appointment:", error);
+      res.status(500).json({
+        success: false,
+        message: error.message || "Failed to delete appointment",
+      });
+    }
+  }
+);
 
 module.exports = router;

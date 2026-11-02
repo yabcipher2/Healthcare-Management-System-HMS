@@ -165,7 +165,8 @@ const createPrescriptionOrder = async (req, res) => {
 
     if (linkedPatient) {
       await PatientRecord.findByIdAndUpdate(linkedPatient, {
-        "pharmacy.prescribedDrugs": medications || [],
+        "pharmacy.prescribedDrugs": medications.map(m => m.name || m) || [],
+        "pharmacy.prescriptionLines": medications || [],
         "pharmacy.dispenseStatus": "Pending",
         currentStatus: "Pharmacy",
       });

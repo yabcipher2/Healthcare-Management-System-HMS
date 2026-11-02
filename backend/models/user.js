@@ -3,6 +3,11 @@ const bcrypt = require("bcryptjs");
 
 const UserSchema = new mongoose.Schema(
   {
+    staffId: { type: String, unique: true, sparse: true, trim: true },
+    id: { type: String, unique: true, sparse: true, trim: true },
+    profileId: { type: String, unique: true, sparse: true, trim: true },
+    nationalId: { type: String, unique: true, sparse: true, trim: true },
+    certificationNo: { type: String, unique: true, sparse: true, trim: true },
     name: { type: String, required: true, trim: true },
     email: {
       type: String,
@@ -17,36 +22,33 @@ const UserSchema = new mongoose.Schema(
       enum: [
         "Administrator",
         "Doctor",
+        "Nurse",
         "Receptionist",
         "Pharmacist",
-        "Laboratory",
+        "Cashier",
+        "Lab Tech",
+        "Store Manager",
+        "Ward",
         "Triage",
-        "Nurse",
-        "Casier",
-        "Ward Manager",
+        "Radiology",
       ],
       required: true,
     },
-    staffId: { type: String, unique: true, sparse: true },
-    dept: { type: String, trim: true },
   },
   { timestamps: true },
 );
 
-// Pre-save hook to hash password before committing to the collection
-// Updated for Mongoose 7+ async/await pattern
+// Automatically intercept save hooks to generate secure Blowfish/bcrypt password hashes
 UserSchema.pre("save", async function () {
-  if (!this.isModified("password")) {
-    return;
-  }
-
+  if (!this.isModified("password")) return;
   const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password, salt);
 });
 
-// Instance method to check password validity safely
+// Match input passwords during portal verification checks
 UserSchema.methods.matchPassword = async function (enteredPassword) {
   return await bcrypt.compare(enteredPassword, this.password);
 };
 
-module.exports = mongoose.model("User", UserSchema);
+// 👇 FIX: Added 'staffs' as the 3rd argument to target your exact MongoDB Compass collection
+module.exports = mongoose.model("User", UserSchema, "staffs");
