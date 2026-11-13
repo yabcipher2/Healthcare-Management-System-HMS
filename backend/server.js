@@ -12,8 +12,7 @@ dotenv.config();
 const app = express();
 
 const startServer = async () => {
-  await connectDB();
-
+  // Setup middleware first so server can respond to health checks even if DB fails
   app.use(express.json());
   app.use(cors());
 
@@ -45,14 +44,18 @@ const startServer = async () => {
 
   // Health check endpoint for monitoring and load balancers
   app.get("/api/health", (req, res) => {
+    const mongoose = require('mongoose');
     const healthCheck = {
       status: "ok",
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
-      database: "connected",
+      database: mongoose.connection.readyState === 1 ? "connected" : "disconnected",
       service: "HMS Backend",
       environment: process.env.NODE_ENV || "development",
+      port: Number.parseInt(process.env.PORT, 10) || 5000,
     };
+    
+    // Return 200 even if DB is down, but indicate status
     res.status(200).json(healthCheck);
   });
 
@@ -71,9 +74,22 @@ const startServer = async () => {
   // frontend cannot reach and make every API call fail with ERR_CONNECTION_REFUSED).
   const parsedPort = Number.parseInt(process.env.PORT, 10);
   const PORT = Number.isInteger(parsedPort) && parsedPort > 0 ? parsedPort : 5000;
-  app.listen(PORT, () =>
-    console.log(`HMS Infrastructure layer streaming live on port ${PORT}`),
-  );
+  
+  // Bind to 0.0.0.0 to accept connections from any network interface (required for Render/cloud platforms)
+  const server = app.listen(PORT, '0.0.0.0', () => {
+    console.log(`HMS Infrastructure layer streaming live on port ${PORT}`);
+    console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`Health check available at: http://0.0.0.0:${PORT}/api/health`);
+  });
+
+  // Connect to database after server starts (prevents deployment failure if DB is temporarily unavailable)
+  try {
+    await connectDB();
+    console.log('Database connection established successfully');
+  } catch (error) {
+    console.error('Database connection failed, but server is still running:', error.message);
+    console.error('Please check MongoDB Atlas Network Access settings');
+  }
 };
 
 startServer();

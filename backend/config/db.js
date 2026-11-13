@@ -43,18 +43,32 @@ const connectDB = async () => {
     const conn = await mongoose.connect(mongoUri, {
       // Atlas free clusters can take a while on a cold start / distant region.
       serverSelectionTimeoutMS: 30000,
+      // Retry writes in case of temporary network issues
+      retryWrites: true,
+      // Write concern for production
+      w: 'majority',
     });
     console.log(
-      `MongoDB Connected Successfully (${target.label}): ${conn.connection.host}/${conn.connection.name}`,
+      `✅ MongoDB Connected Successfully (${target.label}): ${conn.connection.host}/${conn.connection.name}`,
     );
     return conn;
   } catch (error) {
     console.error(
-      `Database Connection Refused (${target.label} → ${target.safe}): ${error.message}`,
+      `⚠️  Database Connection Failed (${target.label} → ${target.safe}): ${error.message}`,
     );
     const hint = connectionHint(error);
-    if (hint) console.error(`Hint: ${hint}`);
-    process.exit(1);
+    if (hint) console.error(`💡 Hint: ${hint}`);
+    
+    // In production, log the error but don't exit - let the server run without DB
+    // The health endpoint and error middleware will show DB is unavailable
+    if (process.env.NODE_ENV === 'production') {
+      console.error('⚠️  Server will continue running without database connection');
+      console.error('⚠️  Please fix MongoDB Atlas Network Access and restart');
+      return null;
+    } else {
+      // In development, exit immediately to fix the issue
+      process.exit(1);
+    }
   }
 };
 
