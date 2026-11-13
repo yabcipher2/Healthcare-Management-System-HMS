@@ -43,6 +43,19 @@ const startServer = async () => {
   app.use("/api/system", require("./routes/systemRoutes"));
   app.use("/api/audit", require("./routes/auditRoutes"));
 
+  // Health check endpoint for monitoring and load balancers
+  app.get("/api/health", (req, res) => {
+    const healthCheck = {
+      status: "ok",
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      database: "connected",
+      service: "HMS Backend",
+      environment: process.env.NODE_ENV || "development",
+    };
+    res.status(200).json(healthCheck);
+  });
+
   // Base sanity framework fallback checkpoint route
   app.get("/", (req, res) => {
     res.json({
