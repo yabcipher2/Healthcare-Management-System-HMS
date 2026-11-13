@@ -1,0 +1,105 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, full ]
+  pull_request:
+    branches: [ main, full ]
+
+env:
+  NODE_VERSION: '18.x'
+
+jobs:
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: |
+          backend/package-lock.json
+          frontend/package-lock.json
+
+    - name: Install Backend Dependencies
+      working-directory: ./backend
+      run: npm ci
+
+    - name: Install Frontend Dependencies
+      working-directory: ./frontend
+      run: npm ci
+
+    - name: Build Frontend
+      working-directory: ./frontend
+      run: npm run build
+
+    - name: Check Backend Syntax
+      working-directory: ./backend
+      run: node -c server.js
+
+  build:
+    name: Build Docker Images
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name == 'push'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+
+    - name: Login to Docker Hub
+      uses: docker/login-action@v2
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+    - name: Build and push Backend image
+      uses: docker/build-push-action@v4
+      with:
+        context: ./backend
+        file: ./Dockerfile.backend
+        push: true
+        tags: ${{ secrets.DOCKER_USERNAME }}/hms-backend:latest,${{ secrets.DOCKER_USERNAME }}/hms-backend:${{ github.sha }}
+        cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/hms-backend:buildcache
+        cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/hms-backend:buildcache,mode=max
+
+    - name: Build and push Frontend image
+      uses: docker/build-push-action@v4
+      with:
+        context: .
+        file: ./Dockerfile.frontend
+        push: true
+        tags: ${{ secrets.DOCKER_USERNAME }}/hms-frontend:latest,${{ secrets.DOCKER_USERNAME }}/hms-frontend:${{ github.sha }}
+        cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/hms-frontend:buildcache
+        cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/hms-frontend:buildcache,mode=max
+
+  deploy:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/full'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Deploy to Server via SSH
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.SERVER_HOST }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SERVER_SSH_KEY }}
+        script: |
+          cd /opt/hms-app
+          docker-compose pull
+          docker-compose up -d --remove-orphans
+          docker image prune -f
