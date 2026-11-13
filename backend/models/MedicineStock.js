@@ -10,6 +10,7 @@ const MedicineStockSchema = new mongoose.Schema(
     stock: { type: Number, default: 0 },
     minLevel: { type: Number, default: 0 },
     shelf: { type: String, trim: true },
+    price: { type: Number, default: 0 },
     status: {
       type: String,
       enum: ["In Stock", "Low Stock", "Out of Stock"],

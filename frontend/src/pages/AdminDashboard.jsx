@@ -59,6 +59,7 @@ import {
   ArrowLeft,
   Check,
 } from "lucide-react";
+import SidebarCollapseButton from "../components/SidebarCollapseButton";
 import NotificationBell from "../components/NotificationBell";
 
 // Palette for chart slices (reused cyclically for categories)
@@ -841,7 +842,7 @@ const AdminDashboard = ({
 
       {/* CORPORATE SIDEBAR NAVIGATION - BLUE BLACK THEME */}
       <aside
-        className={`${isSidebarOpen ? "w-56" : "w-16"} bg-[#0E1B17] text-slate-300 flex flex-col justify-between shrink-0 fixed top-0 h-screen overflow-hidden z-50 font-mono border-r border-[#0E1B17] transition-all duration-300`}
+        className={`${isSidebarOpen ? "w-56" : "w-16 [&_span]:hidden [&_p]:hidden [&_h3]:hidden [&_button]:justify-center [&_button]:text-[0px]"} bg-[#0E1B17] text-slate-300 flex flex-col justify-between shrink-0 fixed top-0 h-screen overflow-hidden z-50 font-mono border-r border-[#0E1B17] transition-all duration-300`}
       >
         <div>
           <div className="p-4 border-b border-[#29323a] flex items-center gap-2.5 bg-[#0E1B17]">
@@ -862,18 +863,12 @@ const AdminDashboard = ({
             </div>
           </div>
 
-          {/* Sidebar Toggle Button */}
-          <div className="p-2 border-b border-[#29323a]">
-            <button
-              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-              className="w-full p-2 rounded-lg hover:bg-[#0E1B17] transition flex items-center justify-center gap-2 text-[#94A3B8] hover:text-white"
-            >
-              <Menu size={14} />
-              {isSidebarOpen && (
-                <span className="text-[10px] font-bold">Toggle Menu</span>
-              )}
-            </button>
-          </div>
+          {/* Sidebar Collapse Control */}
+          <SidebarCollapseButton
+            collapsed={!isSidebarOpen}
+            onToggle={() => setIsSidebarOpen((open) => !open)}
+            label="admin sidebar"
+          />
 
           <nav className="p-3 space-y-1">
             <div className="text-[8px] font-black uppercase text-[#94A3B8] px-3 py-2 tracking-widest">

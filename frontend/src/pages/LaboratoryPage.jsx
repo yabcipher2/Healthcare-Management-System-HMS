@@ -15,6 +15,7 @@ import {
   LogOut,
   Zap,
 } from "lucide-react";
+import SidebarCollapseButton from "../components/SidebarCollapseButton";
 import {
   logAudit,
   fetchAuditLogs,
@@ -24,6 +25,7 @@ import NotificationBell from "../components/NotificationBell";
 
 export default function LaboratoryPage({ onLogout }) {
   const [activeTab, setActiveTab] = useState("activeOrders");
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedOrder, setSelectedOrder] = useState(null);
   const hospitalLogo = "/mesra icon.png";
@@ -142,7 +144,14 @@ export default function LaboratoryPage({ onLogout }) {
       selectedOrder.triageCategory === "Emergency" ||
       isEmergencyBypass;
 
-    if (!isEmergency && selectedOrder.cashierStatus !== "PAID") {
+    // A doctor can dispatch a panel straight from the EMR, so those orders have no
+    // cashier decision yet. Only hold results back when the cashier has actually
+    // marked the order as unpaid.
+    if (
+      !isEmergency &&
+      selectedOrder.cashierStatus &&
+      selectedOrder.cashierStatus !== "PAID"
+    ) {
       alert(
         "Payment confirmation required from cashier before results can be released to Doctor EMR.",
       );
@@ -177,9 +186,10 @@ export default function LaboratoryPage({ onLogout }) {
       );
 
       if (!response.ok) {
-        const errData = await response.json();
+        // A gateway/404 page is HTML, not JSON, so never parse blindly.
+        const errData = await response.json().catch(() => ({}));
         throw new Error(
-          errData.message || "Failed to update lab order results",
+          errData.message || `Failed to update lab order results (${response.status})`,
         );
       }
 
@@ -201,8 +211,11 @@ export default function LaboratoryPage({ onLogout }) {
       });
 
       if (!doctorResponse.ok) {
-        const errData = await doctorResponse.json();
-        throw new Error(errData.message || "Failed to send results to doctor");
+        const errData = await doctorResponse.json().catch(() => ({}));
+        throw new Error(
+          errData.message ||
+            `Failed to send results to doctor (${doctorResponse.status})`,
+        );
       }
 
       await logAudit({
@@ -236,7 +249,7 @@ export default function LaboratoryPage({ onLogout }) {
   return (
     <div className="flex min-h-screen bg-[#0E1B17] text-white font-sans antialiased">
       {/* SIDEBAR - COMPACT (Laboratory) */}
-      <aside className="bg-[#0E1B17] text-slate-300 flex flex-col justify-between shrink-0 sticky top-0 h-screen overflow-hidden z-30 font-mono border-r border-[#0E1B17] w-56">
+      <aside className={`${sidebarOpen ? "w-56" : "w-16 [&_span]:hidden [&_p]:hidden [&_h3]:hidden [&_button]:justify-center [&_button]:text-[0px]"} bg-[#0E1B17] text-slate-300 flex flex-col justify-between shrink-0 sticky top-0 h-screen overflow-hidden z-30 font-mono border-r border-[#0E1B17] transition-all duration-300`}>
         <div>
           {/* Brand Panel - Compact */}
           <div className="p-3 border-b border-[#29323a] flex items-center gap-2 bg-[#0E1B17]">
@@ -254,6 +267,13 @@ export default function LaboratoryPage({ onLogout }) {
               </span>
             </div>
           </div>
+
+          {/* Sidebar Collapse Control */}
+          <SidebarCollapseButton
+            collapsed={!sidebarOpen}
+            onToggle={() => setSidebarOpen((open) => !open)}
+            label="laboratory sidebar"
+          />
 
           {/* Nav Stack - Compact */}
           <nav className="p-2 space-y-1">

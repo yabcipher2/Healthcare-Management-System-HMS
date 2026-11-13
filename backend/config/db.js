@@ -1,13 +1,59 @@
 const mongoose = require("mongoose");
 
+const LOCAL_FALLBACK = "mongodb://127.0.0.1:27017/mesra_hms";
+
+// Accept both names: MONGO_URI is this project's original key, MONGODB_URI is
+// the name Atlas itself puts in the connection string it hands you.
+const resolveUri = () =>
+  process.env.MONGO_URI || process.env.MONGODB_URI || LOCAL_FALLBACK;
+
+const describeTarget = (uri) => {
+  const isAtlas =
+    uri.startsWith("mongodb+srv://") || /\.mongodb\.net/i.test(uri);
+  // Never log credentials, but show enough of the target to spot a typo.
+  const safe = uri.replace(/\/\/[^@/]*@/, "//<credentials>@").split("?")[0];
+  return { isAtlas, label: isAtlas ? "MongoDB Atlas" : "local MongoDB", safe };
+};
+
+const connectionHint = (error) => {
+  const message = error.message || "";
+  if (/bad auth|authentication failed/i.test(message)) {
+    return "Atlas rejected the database user. Check the username/password in MONGO_URI, URL-encode special characters, and confirm the user exists under Database Access.";
+  }
+  if (/not allowed|whitelist|IP address/i.test(message)) {
+    return "This machine is not on the cluster's IP access list. In Atlas open Network Access and add your current IP (0.0.0.0/0 only for development).";
+  }
+  if (/ENOTFOUND|querySrv|dns/i.test(message)) {
+    return "The cluster hostname could not be resolved. Copy the connection string again from Atlas → Connect → Drivers.";
+  }
+  if (/ECONNREFUSED/i.test(message)) {
+    return "Nothing is listening at that address. Start the local MongoDB service, or point MONGO_URI at your Atlas cluster.";
+  }
+  if (/TLS|SSL|certificate/i.test(message)) {
+    return "TLS handshake failed. Use the mongodb+srv:// string from Atlas unchanged; a network proxy that inspects TLS will break this.";
+  }
+  return "";
+};
+
 const connectDB = async () => {
+  const mongoUri = resolveUri();
+  const target = describeTarget(mongoUri);
+
   try {
-    const mongoUri =
-      process.env.MONGO_URI || "mongodb://127.0.0.1:27017/mesra_hms";
-    const conn = await mongoose.connect(mongoUri);
-    console.log(`MongoDB Connected Successfully: ${conn.connection.host}`);
+    const conn = await mongoose.connect(mongoUri, {
+      // Atlas free clusters can take a while on a cold start / distant region.
+      serverSelectionTimeoutMS: 30000,
+    });
+    console.log(
+      `MongoDB Connected Successfully (${target.label}): ${conn.connection.host}/${conn.connection.name}`,
+    );
+    return conn;
   } catch (error) {
-    console.error(`Database Connection Refused: ${error.message}`);
+    console.error(
+      `Database Connection Refused (${target.label} → ${target.safe}): ${error.message}`,
+    );
+    const hint = connectionHint(error);
+    if (hint) console.error(`Hint: ${hint}`);
     process.exit(1);
   }
 };

@@ -31,9 +31,30 @@ const protectRoute = async (req, res, next) => {
   }
 };
 
+// Staff records and login accounts spell the same job differently ("Lab Tech"
+// in the staff directory, "Laboratory" in the route lists). Normalise before
+// the role check so a technician is not locked out of their own module.
+const ROLE_ALIASES = {
+  "lab": "Laboratory",
+  "lab tech": "Laboratory",
+  "lab technician": "Laboratory",
+  "laboratory": "Laboratory",
+  "lab cashier": "Laboratory Cashier",
+  "laboratory cashier": "Laboratory Cashier",
+  "ward": "Ward",
+  "ward manager": "Ward",
+  "charge nurse": "Ward",
+};
+
+const canonicalRole = (role) => {
+  const key = String(role || "").trim().toLowerCase();
+  return ROLE_ALIASES[key] || role;
+};
+
 const authorizeRoles = (...allowedRoles) => {
+  const allowed = allowedRoles.map(canonicalRole);
   return (req, res, next) => {
-    if (!req.user || !allowedRoles.includes(req.user.role)) {
+    if (!req.user || !allowed.includes(canonicalRole(req.user.role))) {
       return res
         .status(403)
         .json({ success: false, message: "Forbidden: Access Restricted" });
@@ -42,4 +63,4 @@ const authorizeRoles = (...allowedRoles) => {
   };
 };
 
-module.exports = { protectRoute, authorizeRoles };
+module.exports = { protectRoute, authorizeRoles, canonicalRole };

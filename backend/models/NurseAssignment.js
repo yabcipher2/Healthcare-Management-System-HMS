@@ -8,6 +8,8 @@ const NurseAssignmentSchema = new mongoose.Schema(
     age: { type: Number, required: true },
     gender: { type: String, required: true },
     assignedStation: { type: String, required: true },
+    // Nurse account the doctor handed the patient to (used for workload).
+    assignedNurse: { type: String, default: "" },
     assignedDoctor: { type: String, default: "" },
     status: { type: String, default: "Pending Meds" },
     carePlan: { type: String, default: "" },

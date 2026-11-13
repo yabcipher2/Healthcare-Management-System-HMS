@@ -15,6 +15,14 @@ const LabOrderSchema = new mongoose.Schema(
     clinicalSummary: { type: String, default: "", trim: true },
     results: { type: mongoose.Schema.Types.Mixed, default: {} },
     diagnosisReport: { type: String, default: "" },
+    // Billing fields written by the lab cashier. Without them here the schema
+    // silently dropped every payment, so the lab never saw an order go PAID.
+    cashierStatus: { type: String, default: "" },
+    paymentMethod: { type: String, default: "" },
+    referenceNumber: { type: String, default: "" },
+    amountPaid: { type: Number, default: 0 },
+    paidAt: { type: String, default: "" },
+    triageCategory: { type: String, default: "" },
     status: {
       type: String,
       enum: ["Pending", "In Progress", "Completed"],

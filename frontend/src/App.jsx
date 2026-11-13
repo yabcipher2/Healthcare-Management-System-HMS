@@ -232,12 +232,18 @@ function AppContent() {
       {activeView === "doctor" && (
         <DoctorPage
           onLogout={handleLogout}
-          onNavigateToNurse={() => setCurrentPage("nurse")}
+          onNavigateToPharmacy={() => setActiveView("pharmacy")}
         />
       )}
 
       {/* 5.5 PHARMACY AND DISPENSING DEPOT */}
-      {activeView === "pharmacy" && <PharmacyPage onLogout={handleLogout} />}
+      {activeView === "pharmacy" && (
+        <PharmacyPage 
+          onLogout={handleLogout}
+          onNavigateToDoctor={() => setActiveView("doctor")}
+          onNavigateToCashier={() => setActiveView("pharmacyCashier")}
+        />
+      )}
 
       {/* 5.6 LABORATORY DIAGNOSTICS DECK */}
       {activeView === "laboratory" && (
@@ -255,7 +261,7 @@ function AppContent() {
       {activeView === "nurse" && (
         <NursePage
           onLogout={handleLogout}
-          onNavigateToDoctor={() => setCurrentPage("doctor")}
+          onNavigateToDoctor={() => setActiveView("doctor")}
         />
       )}
 
@@ -273,7 +279,10 @@ function AppContent() {
 
       {/* 5.11 PHARMACY CASHIER BILLING TERMINAL */}
       {activeView === "pharmacyCashier" && (
-        <PharmacyCashierPage onLogout={handleLogout} />
+        <PharmacyCashierPage 
+          onLogout={handleLogout}
+          onNavigateToPharmacy={() => setActiveView("pharmacy")}
+        />
       )}
 
       {/* 6. ADMIN SECURITY LAYER */}

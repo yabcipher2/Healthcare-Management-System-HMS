@@ -20,6 +20,7 @@ import {
   Layers,
   User,
 } from "lucide-react";
+import SidebarCollapseButton from "../components/SidebarCollapseButton";
 import {
   logAudit,
   fetchAuditLogs,
@@ -274,6 +275,11 @@ export default function TriagePage({ onLogout }) {
     setVitals((prev) => ({ ...prev, [name]: value }));
   };
 
+  // Workload of the physician currently picked in the dispatch form
+  const selectedDoctorInfo = doctorsByDepartment.find(
+    (doc) => String(doc._id) === String(selectedDoctor),
+  );
+
   const handleTriageSubmit = (e) => {
     e.preventDefault();
     setDispatching(true);
@@ -368,7 +374,7 @@ export default function TriagePage({ onLogout }) {
 
       {/* CORPORATE SIDEBAR NAVIGATION - BLUE BLACK THEME */}
       <aside
-        className={`${isSidebarOpen ? "w-56" : "w-16"} bg-[#0E1B17] text-slate-300 flex flex-col justify-between shrink-0 sticky top-0 h-screen overflow-hidden z-30 font-mono border-r border-[#0E1B17] transition-all duration-300`}
+        className={`${isSidebarOpen ? "w-56" : "w-16 [&_span]:hidden [&_p]:hidden [&_h3]:hidden [&_button]:justify-center [&_button]:text-[0px]"} bg-[#0E1B17] text-slate-300 flex flex-col justify-between shrink-0 sticky top-0 h-screen overflow-hidden z-30 font-mono border-r border-[#0E1B17] transition-all duration-300`}
       >
         <div>
           <div className="p-4 border-b border-[#29323a] flex items-center gap-2.5 bg-[#0E1B17]">
@@ -388,6 +394,13 @@ export default function TriagePage({ onLogout }) {
               </span>
             </div>
           </div>
+
+          {/* Sidebar Collapse Control */}
+          <SidebarCollapseButton
+            collapsed={!isSidebarOpen}
+            onToggle={() => setIsSidebarOpen((open) => !open)}
+            label="triage sidebar"
+          />
 
           <nav className="p-3 space-y-1">
             <div className="text-[8px] font-black uppercase text-[#94A3B8] px-3 py-2 tracking-widest">
@@ -937,11 +950,31 @@ export default function TriagePage({ onLogout }) {
                         <option value="">-- Select Target Physician --</option>
                         {doctorsByDepartment.map((doc) => (
                           <option key={doc._id} value={doc._id}>
-                            {doc.name} (
-                            {doc.specialization || "General Practitioner"})
+                            {doc.name} — {doc.activePatients ?? 0} patient
+                            {(doc.activePatients ?? 0) === 1 ? "" : "s"} ·{" "}
+                            {doc.availability || "Free"}
                           </option>
                         ))}
                       </select>
+                      {selectedDoctorInfo && (
+                        <p
+                          className={`text-[10px] font-bold uppercase tracking-wider ${
+                            (selectedDoctorInfo.activePatients ?? 0) === 0
+                              ? "text-emerald-400"
+                              : selectedDoctorInfo.availability === "Busy"
+                                ? "text-rose-400"
+                                : "text-amber-400"
+                          }`}
+                        >
+                          {selectedDoctorInfo.name}:{" "}
+                          {selectedDoctorInfo.activePatients ?? 0} active
+                          patient
+                          {(selectedDoctorInfo.activePatients ?? 0) === 1
+                            ? ""
+                            : "s"}{" "}
+                          — {selectedDoctorInfo.availability || "Free"}
+                        </p>
+                      )}
                     </div>
                   </div>
 

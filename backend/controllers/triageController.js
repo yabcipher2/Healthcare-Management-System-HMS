@@ -1,5 +1,7 @@
+const mongoose = require("mongoose");
 const PatientRecord = require("../models/PatientRecord");
 const AuditLog = require("../models/AuditLog");
+const User = require("../models/User");
 
 const logAudit = async (req, action, module, details, targetId = "", targetType = "PatientRecord") => {
   try {
@@ -150,14 +152,42 @@ const dispatchTriagePatient = async (req, res) => {
       department,
     } = req.body;
 
-    // Validate doctorId pattern prior to mutation if your schema expects ObjectId types
-    let finalizedDoctorId = doctorId;
-    if (doctorId && !/^[0-9a-fA-F]{24}$/.test(doctorId.toString())) {
-      console.warn(
-        `[dispatchTriagePatient] Provided doctorId "${doctorId}" is not a valid hex string. Handling carefully.`,
-      );
-      finalizedDoctorId = null;
+    // Resolve the chosen physician to a real login account in the staffs
+    // collection. A triage tab that was left open before the roster was rebuilt
+    // can still submit ids from the old `users` collection, and no doctor
+    // account can ever match those, which left the doctor dashboard empty.
+    const resolveDoctorAccount = async (rawId) => {
+      if (!rawId) return null;
+      const id = rawId._id ? rawId._id.toString() : rawId.toString();
+      if (!/^[0-9a-fA-F]{24}$/.test(id)) return null;
+
+      const direct = await User.findById(id);
+      if (direct) return direct;
+
+      const legacy = await mongoose.connection.db
+        .collection("users")
+        .findOne({ _id: new mongoose.Types.ObjectId(id) })
+        .catch(() => null);
+      if (!legacy || !legacy.name) return null;
+
+      const escapedName = legacy.name
+        .trim()
+        .replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      return User.findOne({
+        role: "Doctor",
+        name: { $regex: new RegExp(`^${escapedName}$`, "i") },
+      });
+    };
+
+    const doctorAccount = await resolveDoctorAccount(doctorId);
+    if (!doctorAccount) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "The selected physician is not linked to an active doctor account. Reload the triage page, pick the physician again and retry.",
+      });
     }
+    const finalizedDoctorId = doctorAccount._id;
 
     patient.triage = {
       bloodPressure: `${bpSystolic || ""}/${bpDiastolic || ""}`.trim(),
@@ -181,7 +211,10 @@ const dispatchTriagePatient = async (req, res) => {
     }
 
     patient.consultation.assignedDoctor = finalizedDoctorId;
+    patient.consultation.assignedDoctorName = doctorAccount.name || "";
+    patient.consultation.assignedDoctorEmail = doctorAccount.email || "";
     patient.consultation.dispatchedDepartment = department || "";
+    patient.markModified("consultation");
 
     await patient.save();
     await logAudit(req, "UPDATE", "Triage", `Dispatched ${patient.patientName} (${patient.cardId}) to doctor consultation`, patient._id);

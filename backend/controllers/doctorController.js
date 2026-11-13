@@ -1,4 +1,6 @@
 const PatientRecord = require("../models/PatientRecord");
+const Diagnosis = require("../models/Diagnosis");
+const NurseAssignment = require("../models/NurseAssignment");
 const LabOrder = require("../models/LabOrder");
 const PharmacyOrder = require("../models/PharmacyOrder");
 const StaffProfile = require("../models/StaffProfile");
@@ -32,7 +34,21 @@ const getDoctorCases = async (req, res) => {
     const doctorDept = staffProfile?.dept || "";
 
     const query = {
-      "consultation.assignedDoctor": doctorUserId,
+      "consultation.assignedDoctor": {
+        $in: [doctorUserId, doctorUserId.toString()],
+      },
+      // A card handed back to reception leaves the doctor's active caseload.
+      currentStatus: {
+        $in: [
+          "Consultation",
+          "Laboratory",
+          "Radiology",
+          "Pharmacy",
+          "Billing",
+          "Admitted",
+          "Ward",
+        ],
+      },
     };
 
     if (doctorDept) {
@@ -42,7 +58,7 @@ const getDoctorCases = async (req, res) => {
     const cases = await PatientRecord.find(query)
       .sort({ updatedAt: -1 })
       .select(
-        "cardId patientName firstName middleName lastName age gender triage consultation currentStatus laboratory pharmacy triageDepartment",
+        "cardId patientName firstName middleName lastName age gender triage consultation currentStatus laboratory pharmacy radiology triageDepartment liaison",
       );
 
     // Enrich with nurse assignment data
@@ -51,12 +67,17 @@ const getDoctorCases = async (req, res) => {
         const nurseAssignment = await NurseAssignment.findOne({ patientId: patientCase._id });
         return {
           ...patientCase.toObject(),
-          assignedNurseName: nurseAssignment?.assignedStation || null,
-          assignedNurseDepartment: nurseAssignment?.assignedStation || null,
+          assignedNurseName: nurseAssignment?.assignedNurse || "",
+          assignedNurseDepartment:
+            nurseAssignment?.department ||
+            nurseAssignment?.assignedStation ||
+            "",
           doctorInstructions: nurseAssignment?.doctorInstructions || "",
           carePlan: nurseAssignment?.carePlan || "",
           nurseAccepted: nurseAssignment?.nurseAccepted || false,
           nurseResponse: nurseAssignment?.nurseResponse || "",
+          nurseNotes: nurseAssignment?.nurseNotes || "",
+          nurseStatus: nurseAssignment?.status || "",
         };
       })
     );
@@ -76,7 +97,9 @@ const getDoctorPatient = async (req, res) => {
 
     const query = {
       _id: req.params.id,
-      "consultation.assignedDoctor": doctorUserId,
+      "consultation.assignedDoctor": {
+        $in: [doctorUserId, doctorUserId.toString()],
+      },
     };
 
     if (doctorDept) {
@@ -85,7 +108,7 @@ const getDoctorPatient = async (req, res) => {
 
     const patient = await PatientRecord.findOne(query)
       .select(
-        "cardId patientName firstName middleName lastName age gender triage consultation currentStatus laboratory pharmacy triageDepartment",
+        "cardId patientName firstName middleName lastName age gender triage consultation currentStatus laboratory pharmacy radiology triageDepartment liaison",
       );
 
     if (!patient) {
@@ -101,12 +124,17 @@ const getDoctorPatient = async (req, res) => {
     const nurseAssignment = await NurseAssignment.findOne({ patientId: patient._id });
     const enrichedPatient = {
       ...patient.toObject(),
-      assignedNurseName: nurseAssignment?.assignedStation || null,
-      assignedNurseDepartment: nurseAssignment?.assignedStation || null,
+      assignedNurseName: nurseAssignment?.assignedNurse || "",
+      assignedNurseDepartment:
+        nurseAssignment?.department ||
+        nurseAssignment?.assignedStation ||
+        "",
       doctorInstructions: nurseAssignment?.doctorInstructions || "",
       carePlan: nurseAssignment?.carePlan || "",
       nurseAccepted: nurseAssignment?.nurseAccepted || false,
       nurseResponse: nurseAssignment?.nurseResponse || "",
+      nurseNotes: nurseAssignment?.nurseNotes || "",
+      nurseStatus: nurseAssignment?.status || "",
     };
 
     res.status(200).json({ success: true, data: enrichedPatient });
@@ -339,6 +367,11 @@ const submitConsultation = async (req, res) => {
       allergies,
       labRequests,
       prescriptionLines,
+      returnToReception,
+      radiologyForm,
+      nurseForm,
+      liaisonForm,
+      transferForm,
     } = req.body;
 
     const consultationUpdate = {
@@ -384,11 +417,26 @@ const submitConsultation = async (req, res) => {
       patient.pharmacy = {
         ...(patient.pharmacy || {}),
         prescribedDrugs: prescriptionLines.map((line) => line.name),
+        prescriptionLines,
         dispenseStatus: "Pending",
       };
       if (nextStatus !== "Laboratory") {
         nextStatus = "Pharmacy";
       }
+
+      // Price the prescription here so the pharmacy desk and the cashier queue
+      // show the same tariff the patient is billed for.
+      const MedicineStock = require("../models/MedicineStock");
+      const {
+        resolveMedicationLines,
+      } = require("../config/medicinePrices");
+      const inventory = await MedicineStock.find({})
+        .select("name price stock")
+        .lean();
+      const { lines, totalAmount } = resolveMedicationLines(
+        prescriptionLines,
+        inventory,
+      );
 
       await PharmacyOrder.create({
         orderId: `RX-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
@@ -397,13 +445,186 @@ const submitConsultation = async (req, res) => {
         age: patient.age,
         doctorName: req.user?.name || "Unknown Physician",
         timestamp: new Date().toISOString(),
-        medications: prescriptionLines,
+        medications: lines,
+        totalAmount,
         linkedPatient: patient._id,
       });
     }
 
-    patient.currentStatus = nextStatus;
+    patient.currentStatus = returnToReception ? "Registration" : nextStatus;
     await patient.save();
+
+    // Card handed back to reception: this encounter is finished, so archive
+    // every sub-tab onto a Diagnosis history file and wipe the visit-scoped
+    // fields. The next time this card is sent to a doctor the sub-tabs open
+    // empty and the previous visit lives in the patient's history folder.
+    if (returnToReception) {
+      const assignment = await NurseAssignment.findOne({ patientId: patient._id });
+      const lab = patient.laboratory || {};
+      const radiology = patient.radiology || {};
+      const pharmacy = patient.pharmacy || {};
+      const liaison = patient.liaison || {};
+
+      const archivedPrescriptions = (
+        (pharmacy.prescriptionLines || []).length > 0
+          ? pharmacy.prescriptionLines
+          : prescriptionLines || []
+      ).map((line) => ({
+        name: line.name || "",
+        dosage: line.dosage || "",
+        frequency: line.frequency || "",
+        duration: line.duration || "",
+      }));
+
+      const archivedLabRequests =
+        (lab.testRequests || []).length > 0
+          ? lab.testRequests
+          : Array.isArray(labRequests)
+            ? labRequests
+            : [];
+
+      const imagingRegions =
+        (radiology.requestedModalities || []).length > 0
+          ? radiology.requestedModalities
+          : radiologyForm?.regions || [];
+      const hasImaging =
+        imagingRegions.length > 0 ||
+        Boolean(radiology.requestedModality) ||
+        Boolean(radiology.clinicalIndication || radiologyForm?.indication);
+
+      const preferredWard = liaison.preferredWard || liaisonForm?.preferredWard || "";
+      const hasLiaison = Boolean(
+        preferredWard || liaison.clinicalReason || liaisonForm?.clinicalReason,
+      );
+
+      try {
+        await Diagnosis.create({
+          patientId: patient._id,
+          patientMrn: patient.cardId,
+          doctorName:
+            req.user?.name || patient.consultation?.assignedDoctorName || "Attending Physician",
+          triageSnapshot: patient.triage
+            ? {
+                bloodPressure: patient.triage.bloodPressure,
+                heartRate: patient.triage.heartRate,
+                temperature: patient.triage.temperature,
+                respiratoryRate: patient.triage.respiratoryRate,
+                weight: patient.triage.weight,
+                spo2: patient.triage.spo2,
+                triageCategory: patient.triage.triageCategory,
+              }
+            : undefined,
+          hpi: consultationUpdate.historyPresentIllness || "No HPI documented.",
+          physicalExamination: consultationUpdate.physicalExamination || "",
+          pastMedicalHistory: consultationUpdate.pastMedicalHistory || "",
+          familyHistory: consultationUpdate.familyHistory || "",
+          allergies: consultationUpdate.allergies || "",
+          icd11Diagnosis:
+            consultationUpdate.icd11Diagnosis || "Encounter Record",
+          labRequests: archivedLabRequests,
+          labResultsSnapshot:
+            lab.testResults && Object.keys(lab.testResults).length > 0
+              ? lab.testResults
+              : undefined,
+          prescriptions: archivedPrescriptions,
+          radiologyRequest: hasImaging
+            ? {
+                region: radiology.requestedModality || "",
+                regions: imagingRegions,
+                indication:
+                  radiology.clinicalIndication || radiologyForm?.indication || "",
+                urgency:
+                  radiology.urgencyLevel || radiologyForm?.urgency || "Routine",
+                reportText: radiology.reportText || "",
+                imageUrls: radiology.imageUrls || [],
+              }
+            : undefined,
+          nurseData: {
+            assignedNurseId:
+              assignment?.assignedNurseId?.toString() ||
+              assignment?._id?.toString() ||
+              "",
+            assignedNurseName:
+              assignment?.assignedNurse || patient.assignedNurseName || "",
+            doctorInstructions:
+              nurseForm?.doctorInstructions ||
+              assignment?.doctorInstructions ||
+              patient.doctorInstructions ||
+              "",
+            carePlan:
+              nurseForm?.carePlan || assignment?.carePlan || patient.carePlan || "",
+            status: nurseForm?.status || assignment?.status || "",
+            nurseResponse: patient.nurseResponse || assignment?.nurseResponse || "",
+          },
+          liaisonData: hasLiaison
+            ? {
+                preferredWard,
+                admissionUrgency:
+                  liaison.admissionUrgency || liaisonForm?.admissionUrgency || "Routine",
+                clinicalReason: liaison.clinicalReason || liaisonForm?.clinicalReason || "",
+                admissionDate: liaison.admissionDate || liaisonForm?.admissionDate || "",
+                dischargeDate: liaison.dischargeDate || liaisonForm?.dischargeDate || "",
+                medicationIntake:
+                  liaison.medicationIntake || liaisonForm?.medicationIntake || "",
+              }
+            : undefined,
+          transferData: transferForm?.targetFacility
+            ? {
+                targetFacility: transferForm.targetFacility,
+                clinicalReason: transferForm.clinicalReason || "",
+                admissionUrgency: transferForm.admissionUrgency || "Routine",
+              }
+            : undefined,
+          timestamp: new Date(),
+        });
+      } catch (archiveError) {
+        // Never block the hand-back to reception if archiving fails.
+        console.error("[submitConsultation] history archive failed:", archiveError.message);
+      }
+
+      await NurseAssignment.deleteMany({ patientId: patient._id });
+      await PatientRecord.findByIdAndUpdate(patient._id, {
+        $set: {
+          // Keep the routing fields so the card re-enters the same doctor's
+          // queue when reception sends it forward again.
+          "consultation.assignedDoctor": patient.consultation?.assignedDoctor,
+          "consultation.assignedDoctorName":
+            patient.consultation?.assignedDoctorName || "",
+          "consultation.assignedDoctorEmail":
+            patient.consultation?.assignedDoctorEmail || "",
+          "consultation.dispatchedDepartment":
+            patient.consultation?.dispatchedDepartment || "",
+          // Visit documentation is archived, so the tabs start clean.
+          "consultation.historyPresentIllness": "",
+          "consultation.physicalExamination": "",
+          "consultation.icd11Diagnosis": "",
+          "consultation.pastMedicalHistory": "",
+          "consultation.familyHistory": "",
+          "consultation.allergies": "",
+          "consultation.symptoms": "",
+          "consultation.doctorNotes": "",
+          "consultation.diagnosis": "",
+        },
+        $unset: {
+          laboratory: "",
+          radiology: "",
+          pharmacy: "",
+          liaison: "",
+          nurseResponse: "",
+          nurseAccepted: "",
+          nurseNotes: "",
+          nurseStatus: "",
+          doctorInstructions: "",
+        },
+      });
+      await logAudit(
+        req,
+        "UPDATE",
+        "Consultation",
+        `Encounter archived to history and visit tabs cleared for ${patient.patientName} (${patient.cardId}) on return to reception`,
+        patient._id,
+      );
+    }
 
     await logAudit(req, "UPDATE", "Consultation", `Consultation completed for ${patient.patientName} (${patient.cardId}) by ${req.user?.name}`, patient._id);
 
@@ -413,35 +634,135 @@ const submitConsultation = async (req, res) => {
   }
 };
 
+// Shape a legacy PatientRecord (an encounter never archived as a Diagnosis)
+// into the same history-file structure the doctor UI renders.
+const mapRecordToHistoryFile = (record) => {
+  const consultation = record.consultation || {};
+  const laboratory = record.laboratory || {};
+  const radiology = record.radiology || {};
+  const pharmacy = record.pharmacy || {};
+  const triage = record.triage || {};
+
+  const regions =
+    (radiology.requestedModalities || []).length > 0
+      ? radiology.requestedModalities
+      : radiology.requestedModality
+        ? [radiology.requestedModality]
+        : [];
+
+  return {
+    _id: record._id,
+    patientId: record._id,
+    patientMrn: record.cardId,
+    doctorName:
+      consultation.assignedDoctorName || record.doctorName || "Attending Physician",
+    hpi: consultation.historyPresentIllness || consultation.symptoms || "",
+    physicalExamination:
+      consultation.physicalExamination || consultation.doctorNotes || "",
+    pastMedicalHistory: consultation.pastMedicalHistory || "",
+    familyHistory: consultation.familyHistory || "",
+    allergies: consultation.allergies || "",
+    icd11Diagnosis:
+      consultation.icd11Diagnosis || consultation.diagnosis || "Encounter Record",
+    triageSnapshot:
+      triage.bloodPressure || triage.heartRate || triage.temperature
+        ? {
+            bloodPressure: triage.bloodPressure,
+            heartRate: triage.heartRate,
+            temperature: triage.temperature,
+            respiratoryRate: triage.respiratoryRate,
+            weight: triage.weight,
+            spo2: triage.spo2,
+            triageCategory: triage.triageCategory,
+          }
+        : undefined,
+    labRequests: laboratory.testRequests || [],
+    labResultsSnapshot:
+      laboratory.testResults && Object.keys(laboratory.testResults).length > 0
+        ? laboratory.testResults
+        : undefined,
+    prescriptions: (pharmacy.prescriptionLines || []).length
+      ? pharmacy.prescriptionLines.map((line) => ({
+          name: line.name || "",
+          dosage: line.dosage || "",
+          frequency: line.frequency || "",
+          duration: line.duration || "",
+        }))
+      : (pharmacy.prescribedDrugs || []).map((name) => ({ name })),
+    radiologyRequest: regions.length
+      ? {
+          region: radiology.requestedModality || "",
+          regions,
+          indication: radiology.clinicalIndication || "",
+          urgency: radiology.urgencyLevel || "Routine",
+          reportText: radiology.reportText || "",
+          imageUrls: radiology.imageUrls || [],
+        }
+      : undefined,
+    nurseData: record.doctorInstructions || record.assignedNurseName
+      ? {
+          assignedNurseName: record.assignedNurseName || "",
+          doctorInstructions: record.doctorInstructions || "",
+          carePlan: record.carePlan || "",
+          status: record.nurseStatus || "",
+          nurseResponse: record.nurseResponse || "",
+        }
+      : undefined,
+    liaisonData: record.liaison?.preferredWard || record.liaison?.clinicalReason
+      ? record.liaison
+      : undefined,
+    timestamp: record.updatedAt || record.createdAt,
+  };
+};
+
 // Get patient history
 const getPatientHistory = async (req, res) => {
   try {
     const patientId = req.params.id;
-    
+
     // Get the current patient record
     const patient = await PatientRecord.findById(patientId);
     if (!patient) {
-      return res.status(404).json({ 
-        success: false, 
-        message: "Patient not found" 
+      return res.status(404).json({
+        success: false,
+        message: "Patient not found",
       });
     }
 
-    // Find all historical records for this patient (by card ID or patient name)
-    const history = await PatientRecord.find({
-      $or: [
-        { cardId: patient.cardId },
-        { patientName: patient.patientName }
-      ],
-      _id: { $ne: patientId } // Exclude current record
-    })
-    .sort({ createdAt: -1 })
-    .select('cardId patientName age gender triage consultation laboratory pharmacy currentStatus createdAt updatedAt')
-    .limit(10);
+    // Archived encounter files. One is written every time a card is returned
+    // to reception, so a returning patient always has their previous visits.
+    const archived = await Diagnosis.find({ patientMrn: patient.cardId })
+      .sort({ timestamp: -1 })
+      .limit(25)
+      .lean();
 
-    res.status(200).json({ 
-      success: true, 
-      data: history 
+    // Older cards that predate archiving: other PatientRecord documents for the
+    // same person that still carry clinical documentation.
+    const legacyRecords = await PatientRecord.find({
+      patientName: patient.patientName,
+      _id: { $ne: patient._id },
+      $or: [
+        { "consultation.icd11Diagnosis": { $nin: ["", null] } },
+        { "consultation.diagnosis": { $nin: ["", null] } },
+        { "laboratory.testRequests.0": { $exists: true } },
+        { "pharmacy.prescribedDrugs.0": { $exists: true } },
+        { "radiology.requestedModality": { $exists: true } },
+        { "radiology.requestedModalities.0": { $exists: true } },
+      ],
+    })
+      .sort({ updatedAt: -1 })
+      .limit(10)
+      .lean();
+
+    const history = [
+      ...archived,
+      ...legacyRecords.map(mapRecordToHistoryFile),
+    ].sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
+
+    res.status(200).json({
+      success: true,
+      count: history.length,
+      data: history,
     });
   } catch (error) {
     console.error('Error fetching patient history:', error);
@@ -590,8 +911,18 @@ const createDoctorRadiologyOrder = async (req, res) => {
     await PatientRecord.findByIdAndUpdate(patientId, {
       "radiology.imagingStatus": "Pending Ultrasound Scan",
       "radiology.requestedModalities": selectedRegions,
+      "radiology.requestedModality": selectedRegions[0],
       "radiology.clinicalIndication": clinicalIndication,
       "radiology.urgencyLevel": urgencyLevel || "Routine",
+      // Stamp the referral so the ultrasound worklist shows who ordered it
+      // and when, instead of a blank "Attending Physician / Not recorded".
+      "radiology.authorizingPhysician": req.user?.name || "Attending Physician",
+      "radiology.timestamp": new Date(),
+      // A new referral must not inherit the previous study's report.
+      "radiology.reportText": "",
+      "radiology.imageUrls": [],
+      "radiology.resultsTimestamp": null,
+      "radiology.releasedBy": "",
       currentStatus: "Radiology",
     });
     

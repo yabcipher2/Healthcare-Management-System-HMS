@@ -23,6 +23,7 @@ import {
   FileText,
   Menu,
 } from "lucide-react";
+import SidebarCollapseButton from "../components/SidebarCollapseButton";
 import {
   logAudit,
   fetchAuditLogs,
@@ -30,7 +31,7 @@ import {
 } from "../utils/audit";
 import NotificationBell from "../components/NotificationBell";
 
-export default function PharmacyPage({ onLogout }) {
+export default function PharmacyPage({ onLogout, onNavigateToDoctor, onNavigateToCashier }) {
   const [activeTab, setActiveTab] = useState("dashboard"); // dashboard, prescriptions, inventory, pharmacyAudit
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedOrder, setSelectedOrder] = useState(null);
@@ -218,18 +219,12 @@ export default function PharmacyPage({ onLogout }) {
             )}
           </div>
 
-          {/* Sidebar Toggle Button */}
-          <div className="p-2 border-b border-[#29323a]">
-            <button
-              onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="w-full p-2 rounded-lg hover:bg-[#0E1B17] transition flex items-center justify-center gap-2 text-[#94A3B8] hover:text-white"
-            >
-              <Menu size={14} />
-              {sidebarOpen && (
-                <span className="text-[10px] font-bold">Toggle Menu</span>
-              )}
-            </button>
-          </div>
+          {/* Sidebar Collapse Control */}
+          <SidebarCollapseButton
+            collapsed={!sidebarOpen}
+            onToggle={() => setSidebarOpen((open) => !open)}
+            label="pharmacy sidebar"
+          />
 
           {/* Nav Stack */}
           <div className="p-3 space-y-1">
@@ -279,6 +274,31 @@ export default function PharmacyPage({ onLogout }) {
                 </span>
               )}
             </button>
+            
+            {/* Navigation Buttons */}
+            {sidebarOpen && (
+              <div className="text-[9px] font-black uppercase text-[#94A3B8] px-3 py-2 tracking-widest mt-4">
+                Quick Navigation
+              </div>
+            )}
+            
+            {onNavigateToDoctor && (
+              <button
+                onClick={onNavigateToDoctor}
+                className="w-full flex items-center justify-center px-3 py-2.5 rounded-lg font-bold uppercase tracking-wider transition text-[#94A3B8] hover:bg-blue-600 hover:text-white border border-[#29323a] hover:border-blue-600"
+              >
+                <User size={14} /> {sidebarOpen && <span className="ml-2.5">Doctor Page</span>}
+              </button>
+            )}
+            
+            {onNavigateToCashier && (
+              <button
+                onClick={onNavigateToCashier}
+                className="w-full flex items-center justify-center px-3 py-2.5 rounded-lg font-bold uppercase tracking-wider transition text-[#94A3B8] hover:bg-emerald-600 hover:text-white border border-[#29323a] hover:border-emerald-600"
+              >
+                <Package size={14} /> {sidebarOpen && <span className="ml-2.5">Cashier Page</span>}
+              </button>
+            )}
           </div>
         </div>
 
@@ -411,7 +431,7 @@ export default function PharmacyPage({ onLogout }) {
                   <thead>
                     <tr className="bg-[#0E1B17] border-b border-white/20 text-[11px] font-bold uppercase text-[#94A3B8] font-mono">
                       <th className="p-4 px-6">Order ID</th>
-                      <th className="p-4 px-6">Patient Identifier (Card ID)</th>
+                      <th className="p-4 px-6">Patient / Card ID</th>
                       <th className="p-4 px-6">Prescribed By</th>
                       <th className="p-4 px-6">Time Received</th>
                       <th className="p-4 px-6">Payment</th>
@@ -422,7 +442,7 @@ export default function PharmacyPage({ onLogout }) {
                     {orders.length === 0 ? (
                       <tr>
                         <td
-                          colSpan="7"
+                          colSpan="6"
                           className="p-8 text-center text-[#94A3B8] font-mono"
                         >
                           No pending electronic prescription orders routed to
@@ -441,9 +461,13 @@ export default function PharmacyPage({ onLogout }) {
                             <td className="p-4 px-6 font-mono text-[#10B981] font-bold">
                               {order.orderId}
                             </td>
-                            <td className="p-4 px-6 text-white font-black font-mono text-[10px]">
-                              REQ_TOKEN:{" "}
-                              {order.patientCardId || order.mrn || "ANONYMIZED"}
+                            <td className="p-4 px-6">
+                              <span className="block text-white font-black text-[12px] uppercase truncate">
+                                {order.patientName || "Unknown Patient"}
+                              </span>
+                              <span className="block text-[#94A3B8] font-mono text-[10px]">
+                                {order.patientCardId || order.mrn || "NO MRN"}
+                              </span>
                             </td>
                             <td className="p-4 px-6 text-slate-300">
                               {order.doctorName}
@@ -499,7 +523,7 @@ export default function PharmacyPage({ onLogout }) {
               <div className="p-6 bg-[#050B09] text-white flex justify-between items-center">
                 <div>
                   <h2 className="text-base font-black uppercase tracking-wider">
-                    Prescription Verification Terminal
+                    {selectedOrder.patientName || "Unknown Patient"}
                   </h2>
                   <p className="text-xs text-[#94A3B8] font-mono mt-0.5">
                     MRN Sequence:{" "}
