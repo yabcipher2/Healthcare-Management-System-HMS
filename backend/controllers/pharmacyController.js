@@ -2,6 +2,10 @@ const PharmacyOrder = require("../models/PharmacyOrder");
 const MedicineStock = require("../models/MedicineStock");
 const PatientRecord = require("../models/PatientRecord");
 const AuditLog = require("../models/AuditLog");
+const {
+  medicinePrice,
+  resolveMedicationLines,
+} = require("../config/medicinePrices");
 
 const logAudit = async (req, action, module, details, targetId = "") => {
   try {
@@ -37,6 +41,7 @@ const getInventory = async (req, res) => {
           stock: 1420,
           minLevel: 300,
           shelf: "Rack A-3",
+          price: 45,
           status: "In Stock",
         },
         {
@@ -48,6 +53,7 @@ const getInventory = async (req, res) => {
           stock: 4500,
           minLevel: 500,
           shelf: "Rack A-1",
+          price: 25,
           status: "In Stock",
         },
         {
@@ -59,6 +65,7 @@ const getInventory = async (req, res) => {
           stock: 180,
           minLevel: 250,
           shelf: "Rack B-2",
+          price: 150,
           status: "Low Stock",
         },
         {
@@ -70,6 +77,7 @@ const getInventory = async (req, res) => {
           stock: 95,
           minLevel: 100,
           shelf: "Cold Fridge 1",
+          price: 320,
           status: "Low Stock",
         },
         {
@@ -81,6 +89,7 @@ const getInventory = async (req, res) => {
           stock: 2400,
           minLevel: 400,
           shelf: "Rack C-1",
+          price: 85,
           status: "In Stock",
         },
         {
@@ -92,6 +101,7 @@ const getInventory = async (req, res) => {
           stock: 0,
           minLevel: 200,
           shelf: "Rack B-4",
+          price: 410,
           status: "Out of Stock",
         },
         {
@@ -123,6 +133,19 @@ const getInventory = async (req, res) => {
         .json({ success: true, count: seeded.length, data: seeded });
     }
 
+    // Stock rows seeded before the tariff was wired up have no price, which
+    // would price every prescription at 0.00 ETB. Backfill them once.
+    const unpriced = inventory.filter((item) => !(Number(item.price) > 0));
+    if (unpriced.length > 0) {
+      for (const item of unpriced) {
+        item.price = medicinePrice(item.name, []);
+        await MedicineStock.updateOne(
+          { _id: item._id },
+          { $set: { price: item.price } },
+        );
+      }
+    }
+
     res
       .status(200)
       .json({ success: true, count: inventory.length, data: inventory });
@@ -150,6 +173,16 @@ const createPrescriptionOrder = async (req, res) => {
       medications,
       linkedPatient,
     } = req.body;
+    // Price the lines at write time so the pharmacy desk, the cashier queue and
+    // the final bill all agree on what the prescription costs.
+    const inventory = await MedicineStock.find({})
+      .select("name price stock")
+      .lean();
+    const { lines, totalAmount } = resolveMedicationLines(
+      medications || [],
+      inventory,
+    );
+
     const order = await PharmacyOrder.create({
       orderId: `RX-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
       patientCardId,
@@ -157,7 +190,8 @@ const createPrescriptionOrder = async (req, res) => {
       age,
       doctorName,
       timestamp: new Date().toISOString(),
-      medications: medications || [],
+      medications: lines,
+      totalAmount,
       status: "Pending",
       dispenseStatus: "Pending",
       linkedPatient,
@@ -165,8 +199,8 @@ const createPrescriptionOrder = async (req, res) => {
 
     if (linkedPatient) {
       await PatientRecord.findByIdAndUpdate(linkedPatient, {
-        "pharmacy.prescribedDrugs": medications.map(m => m.name || m) || [],
-        "pharmacy.prescriptionLines": medications || [],
+        "pharmacy.prescribedDrugs": lines.map((m) => m.name || m) || [],
+        "pharmacy.prescriptionLines": lines,
         "pharmacy.dispenseStatus": "Pending",
         currentStatus: "Pharmacy",
       });
@@ -182,21 +216,33 @@ const createPrescriptionOrder = async (req, res) => {
 
 const markPrescriptionDispensed = async (req, res) => {
   try {
-    const order = await PharmacyOrder.findByIdAndUpdate(
-      req.params.id,
-      {
-        status: "Dispensed",
-        dispenseStatus: "Dispensed",
-        updatedAt: new Date(),
-      },
-      { returnDocument: "after", runValidators: true },
-    );
+    const order = await PharmacyOrder.findById(req.params.id);
 
     if (!order) {
       return res
         .status(404)
         .json({ success: false, message: "Prescription order not found." });
     }
+
+    // Re-price at dispense time from the live tariff (stock prices may have
+    // changed since the script was written).
+    if (order.medications && order.medications.length > 0) {
+      const inventory = await MedicineStock.find({})
+        .select("name price stock")
+        .lean();
+      const { lines, totalAmount } = resolveMedicationLines(
+        order.medications,
+        inventory,
+      );
+      order.medications = lines;
+      order.totalAmount = totalAmount;
+    }
+    
+    order.status = "Dispensed";
+    order.dispenseStatus = "Dispensed";
+    order.updatedAt = new Date();
+    
+    await order.save();
 
     if (order.linkedPatient) {
       await PatientRecord.findByIdAndUpdate(order.linkedPatient, {

@@ -24,6 +24,7 @@ import {
   UserPlus,
   Menu,
 } from "lucide-react";
+import SidebarCollapseButton from "../components/SidebarCollapseButton";
 import {
   logAudit,
   fetchAuditLogs,
@@ -444,18 +445,12 @@ export default function WardPage({ onLogout }) {
             )}
           </div>
 
-          {/* Sidebar Toggle Button */}
-          <div className="p-2 border-b border-[#29323a]">
-            <button
-              onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="w-full p-2 rounded-lg hover:bg-[#0E1B17] transition flex items-center justify-center gap-2 text-[#94A3B8] hover:text-white"
-            >
-              <Menu size={14} />
-              {sidebarOpen && (
-                <span className="text-[10px] font-bold">Toggle Menu</span>
-              )}
-            </button>
-          </div>
+          {/* Sidebar Collapse Control */}
+          <SidebarCollapseButton
+            collapsed={!sidebarOpen}
+            onToggle={() => setSidebarOpen((open) => !open)}
+            label="ward sidebar"
+          />
 
           <nav className="p-3 space-y-1">
             <div className="text-[8px] font-black uppercase text-[#94A3B8] px-3 py-2 tracking-widest">

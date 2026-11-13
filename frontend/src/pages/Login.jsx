@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Mail, Lock, Eye, EyeOff, ShieldCheck } from "lucide-react";
+import { Mail, Lock, Eye, EyeOff, ShieldCheck, AlertCircle } from "lucide-react";
 
 const Login = ({ onLoginSuccess, onBackClick }) => {
   const [showPassword, setShowPassword] = useState(false);
@@ -41,6 +41,10 @@ const Login = ({ onLoginSuccess, onBackClick }) => {
       });
       const result = await response.json();
 
+      if (response.status === 401) {
+        throw new Error("Invalid email or password.");
+      }
+
       if (!response.ok) {
         throw new Error(
           result.message || "Authentication failed. Access Denied.",
@@ -76,7 +80,14 @@ const Login = ({ onLoginSuccess, onBackClick }) => {
       localStorage.setItem("user", JSON.stringify(loginData));
       onLoginSuccess(loginData);
     } catch (error) {
-      setError(error.message);
+      const isNetworkFailure =
+        error instanceof TypeError ||
+        /failed to fetch|networkerror|load failed/i.test(error.message || "");
+      setError(
+        isNetworkFailure
+          ? "Unable to reach the server. Please check your connection and try again."
+          : error.message || "Invalid email or password.",
+      );
     } finally {
       setIsLoading(false);
     }
@@ -136,6 +147,17 @@ const Login = ({ onLoginSuccess, onBackClick }) => {
             </button>
           </div>
 
+          {error && (
+            <div
+              role="alert"
+              aria-live="assertive"
+              className="mb-5 flex items-start gap-2 rounded-xl border border-[#EF4444]/40 bg-[#EF4444]/10 px-3.5 py-3 text-[11px] font-semibold text-[#FCA5A5]"
+            >
+              <AlertCircle size={14} className="mt-0.5 shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
+
           <form className="space-y-6" onSubmit={handleLogin}>
             <div>
               <label className="block text-[9px] font-black text-[#94A3B8] uppercase tracking-widest mb-1.5 ml-1">
@@ -149,7 +171,10 @@ const Login = ({ onLoginSuccess, onBackClick }) => {
                   type="email"
                   required
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    if (error) setError("");
+                  }}
                   className="block w-full pl-10 pr-4 py-2.5 text-xs border border-white/10 rounded-xl focus:border-[#10B981] focus:bg-[#0E1B17] transition-all outline-none bg-[#0E1B17] text-white font-bold"
                   placeholder="admin@mesra.com"
                 />
@@ -168,7 +193,10 @@ const Login = ({ onLoginSuccess, onBackClick }) => {
                   type={showPassword ? "text" : "password"}
                   required
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    if (error) setError("");
+                  }}
                   className="block w-full pl-10 pr-10 py-2.5 text-xs border border-white/10 rounded-xl focus:border-[#10B981] focus:bg-[#0E1B17] transition-all outline-none bg-[#0E1B17] text-white font-bold"
                   placeholder="••••••••"
                 />

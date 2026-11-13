@@ -2,6 +2,8 @@ const express = require("express");
 const router = express.Router();
 
 const User = require("../models/User");
+const PatientRecord = require("../models/PatientRecord");
+const AuditLog = require("../models/AuditLog");
 const Staff = require("../models/StaffProfile");
 const Appointment = require("../models/Appointment");
 const {
@@ -49,6 +51,41 @@ router.get(
   authorizeRoles("Doctor", "Administrator"),
   getRecommendedNurse,
 );
+
+/**
+ * @route   GET /api/doctor/patients/lookup?name=<patient name>
+ * @desc    Resolve a registered patient's card ID from their name
+ * @access  Private (Doctor, Administrator)
+ */
+router.get(
+  "/patients/lookup",
+  protectRoute,
+  authorizeRoles("Doctor", "Administrator"),
+  async (req, res) => {
+    try {
+      const name = String(req.query.name || "").trim();
+      if (name.length < 2) {
+        return res.status(200).json({ success: true, data: [] });
+      }
+
+      // Escape the search text so a name cannot be read as a regex pattern.
+      const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+      const matches = await PatientRecord.find({
+        patientName: { $regex: escaped, $options: "i" },
+        cardId: { $nin: [null, ""] },
+      })
+        .select("cardId patientName firstName middleName lastName age gender currentStatus")
+        .sort({ updatedAt: -1 })
+        .limit(8);
+
+      return res.status(200).json({ success: true, data: matches });
+    } catch (error) {
+      console.error("Error looking up patient by name:", error);
+      return res.status(500).json({ success: false, message: error.message });
+    }
+  },
+);
 router.post(
   "/:id/consultation",
   protectRoute,
@@ -61,6 +98,76 @@ router.post(
   authorizeRoles("Doctor", "Administrator"),
   createDoctorLabOrder,
 );
+
+/**
+ * @route   POST /api/doctor/lab-results
+ * @desc    Laboratory releases finalized results back into the physician EMR
+ * @access  Private (Laboratory, Doctor, Administrator)
+ */
+router.post(
+  "/lab-results",
+  protectRoute,
+  authorizeRoles("Laboratory", "Doctor", "Administrator"),
+  async (req, res) => {
+    try {
+      const { cardId, linkedPatient, resultsLogged, diagnosisReport } = req.body;
+
+      const patient = linkedPatient
+        ? await PatientRecord.findById(linkedPatient)
+        : cardId
+          ? await PatientRecord.findOne({ cardId })
+          : null;
+
+      if (!patient) {
+        return res.status(404).json({
+          success: false,
+          message: "Patient record not found for these laboratory results.",
+        });
+      }
+
+      const laboratory = JSON.parse(JSON.stringify(patient.laboratory || {}));
+      patient.laboratory = {
+        ...laboratory,
+        testResults: resultsLogged || laboratory.testResults || {},
+        diagnosisReport: diagnosisReport || laboratory.diagnosisReport || "",
+        labStatus: "Completed",
+        releasedAt: new Date(),
+        releasedBy: req.user?.name || req.user?.email || "Laboratory",
+      };
+      // Results are back, so the patient returns to the requesting physician.
+      patient.currentStatus = "Consultation";
+      await patient.save();
+
+      await AuditLog.create({
+        action: "UPDATE",
+        module: "Laboratory",
+        userId: req.user?._id || req.user?.id || "unknown",
+        userName: req.user?.name || "Unknown",
+        userRole: req.user?.role || "unknown",
+        department: req.user?.dept || "",
+        targetId: patient._id,
+        targetType: "LabOrder",
+        details: `Lab results released to physician EMR for ${patient.patientName} (${patient.cardId})`,
+        ipAddress: req.ip || "",
+      });
+
+      return res.status(200).json({
+        success: true,
+        message: "Laboratory results released to the physician EMR.",
+        data: {
+          _id: patient._id,
+          patientName: patient.patientName,
+          cardId: patient.cardId,
+          currentStatus: patient.currentStatus,
+          labStatus: patient.laboratory.labStatus,
+        },
+      });
+    } catch (error) {
+      console.error("Error releasing lab results to doctor:", error);
+      return res.status(400).json({ success: false, message: error.message });
+    }
+  },
+);
 router.post(
   "/:id/radiology",
   protectRoute,
@@ -70,13 +177,14 @@ router.post(
 
 router.get("/departments", async (req, res) => {
   try {
-    // Looks for all unique 'dept' strings among active Doctors in Staff collection
-    const departments = await Staff.distinct("dept", {
-      jobTitle: "Doctor",
-      contractStatus: "Active",
-    });
+    // Derive the clinic/unit options from the doctor login accounts. The
+    // StaffProfile collection is empty in this deployment, so reading it here
+    // returned no departments and the triage dispatch dropdown stayed empty.
+    const departments = await User.distinct("dept", { role: "Doctor" });
 
-    const cleanDepartments = departments.filter(Boolean); // removes null or empty items
+    const cleanDepartments = [
+      ...new Set(departments.filter(Boolean).map((dept) => dept.trim())),
+    ].sort();
 
     return res.status(200).json({
       success: true,
@@ -100,39 +208,75 @@ router.get("/doctors/department/:department", async (req, res) => {
   try {
     const { department } = req.params;
 
-    const activeStaffDoctors = await Staff.find({
-      jobTitle: "Doctor",
-      contractStatus: "Active",
-      dept: { $regex: new RegExp("^" + department + "$", "i") },
-    });
-
-    if (!activeStaffDoctors || activeStaffDoctors.length === 0) {
-      return res.status(200).json({ success: true, data: [] });
+    if (!department || department.includes("[object Object]")) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid department parameter" });
     }
 
-    const staffNames = activeStaffDoctors.map((doctor) => doctor.name);
+    // Resolve physicians from their login accounts (role Doctor + dept).
+    // StaffProfile has no records here, which previously produced an empty
+    // physician list and blocked the triage -> doctor handoff entirely.
+    const escapedDept = department
+      .trim()
+      .replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
     const matchingUsers = await User.find({
       role: "Doctor",
-      name: { $in: staffNames },
-    }).select("_id name email");
+      dept: { $regex: new RegExp(`^${escapedDept}$`, "i") },
+    }).select("_id name email dept");
 
-    const availablePractitioners = matchingUsers.map((user) => {
-      const staffProfile = activeStaffDoctors.find(
-        (staff) => staff.name.toLowerCase() === user.name.toLowerCase(),
-      );
+    // Login lowercases the email, so only a lowercase-email record can sign in.
+    // Collapse duplicates that differ only by letter case (e.g. Haile@doc.com
+    // vs haile@doc.com) so triage cannot assign a patient to an unusable twin.
+    const byIdentity = new Map();
+    for (const user of matchingUsers) {
+      const key = (user.email || user.name || user._id.toString()).toLowerCase();
+      const loggable = Boolean(user.email) && user.email === user.email.toLowerCase();
+      const current = byIdentity.get(key);
+      if (!current || (loggable && !current.loggable)) {
+        byIdentity.set(key, { user, loggable });
+      }
+    }
 
-      return {
-        _id: user._id,
-        name: user.name,
-        email: user.email,
-        dept: staffProfile ? staffProfile.dept : department,
-        qualification: staffProfile
-          ? staffProfile.qualification
-          : "Medical Practitioner",
-        staffId: staffProfile ? staffProfile.id : null,
-      };
-    });
+    // Current caseload per physician, so triage can see who is free before
+    // handing a patient over. Discharged records are excluded.
+    const activeStatuses = [
+      "Consultation",
+      "Laboratory",
+      "Radiology",
+      "Pharmacy",
+      "Billing",
+      "Admitted",
+      "Ward",
+    ];
+
+    const availablePractitioners = await Promise.all(
+      [...byIdentity.values()].map(async ({ user }) => {
+        const activePatients = await PatientRecord.countDocuments({
+          "consultation.assignedDoctor": {
+            $in: [user._id, user._id.toString()],
+          },
+          currentStatus: { $in: activeStatuses },
+        });
+
+        return {
+          _id: user._id,
+          name: user.name,
+          email: user.email,
+          dept: user.dept || department,
+          qualification: "Medical Practitioner",
+          staffId: null,
+          activePatients,
+          availability:
+            activePatients === 0
+              ? "Free"
+              : activePatients <= 2
+                ? "Moderate"
+                : "Busy",
+        };
+      }),
+    );
 
     return res.status(200).json({
       success: true,

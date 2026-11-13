@@ -1,6 +1,10 @@
 const LabOrder = require("../models/LabOrder");
 const PharmacyOrder = require("../models/PharmacyOrder");
+const MedicineStock = require("../models/MedicineStock");
 const AuditLog = require("../models/AuditLog");
+const {
+  resolveMedicationLines,
+} = require("../config/medicinePrices");
 
 const logAudit = async (req, action, module, details, targetId = "") => {
   try {
@@ -37,17 +41,40 @@ const getLabCashierOrders = async (req, res) => {
   }
 };
 
-// @desc    Get all pharmacy orders for cashier queue
+// @desc    Get pharmacy orders awaiting payment for the cashier queue
 // @route   GET /api/cashier/pharmacy/orders
 // @access  Pharmacy Cashier, Administrator
 const getPharmacyCashierOrders = async (req, res) => {
   try {
-    const orders = await PharmacyOrder.find({})
+    // Only prescriptions that still need settlement: cancelled/already
+    // dispensed orders and settled bills must not clutter the desk.
+    const orders = await PharmacyOrder.find({
+      status: { $nin: ["Dispensed", "Cancelled"] },
+      dispenseStatus: { $ne: "Dispensed" },
+      cashierStatus: { $ne: "PAID" },
+    })
       .sort({ createdAt: -1 })
       .select(
-        "_id orderId patientCardId patientName age doctorName timestamp medications status dispenseStatus cashierStatus paymentMethod referenceNumber amountPaid paidAt linkedPatient",
+        "_id orderId patientCardId patientName age doctorName timestamp medications status dispenseStatus cashierStatus paymentStatus paymentMethod referenceNumber amountPaid paidAt linkedPatient",
+      )
+      .lean();
+
+    // Prescription lines carry a drug name but no tariff, so price them here.
+    const inventory = await MedicineStock.find({})
+      .select("name price stock")
+      .lean();
+
+    const priced = orders.map((order) => {
+      const { lines, totalAmount } = resolveMedicationLines(
+        order.medications,
+        inventory,
       );
-    res.status(200).json({ success: true, count: orders.length, data: orders });
+      return { ...order, medications: lines, totalAmount };
+    });
+
+    res
+      .status(200)
+      .json({ success: true, count: priced.length, data: priced });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -102,14 +129,32 @@ const payPharmacyOrder = async (req, res) => {
       return res.status(400).json({ success: false, message: "Order already dispensed." });
     }
 
+    if (order.cashierStatus === "PAID") {
+      return res.status(400).json({ success: false, message: "Order is already paid." });
+    }
+
+    // Bill from the same tariff the cashier screens show, never from a
+    // zero stored price.
+    const inventory = await MedicineStock.find({})
+      .select("name price stock")
+      .lean();
+    const { lines, totalAmount } = resolveMedicationLines(
+      order.medications,
+      inventory,
+    );
+    const billed = Number(amountPaid) > 0 ? Number(amountPaid) : totalAmount;
+
+    order.medications = lines;
+    order.totalAmount = billed;
     order.cashierStatus = "PAID";
+    order.paymentStatus = "Paid";
     order.paymentMethod = paymentMethod || "Cash";
     order.referenceNumber = referenceNumber || "";
-    order.amountPaid = amountPaid || 0;
+    order.amountPaid = billed;
     order.paidAt = new Date().toISOString();
     await order.save();
 
-    await logAudit(req, "UPDATE", "Cashier", `Pharmacy order ${order.orderId} marked as PAID for patient ${order.patientName} (${order.patientCardId})`, order._id);
+    await logAudit(req, "UPDATE", "Cashier", `Pharmacy order ${order.orderId} marked as PAID for patient ${order.patientName} (${order.patientCardId}) - ${billed.toFixed(2)} ETB via ${order.paymentMethod}`, order._id);
 
     res.status(200).json({ success: true, data: order });
   } catch (error) {

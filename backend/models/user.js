@@ -31,9 +31,12 @@ const UserSchema = new mongoose.Schema(
         "Ward",
         "Triage",
         "Radiology",
+        "Laboratory Cashier",
+        "Pharmacy Cashier",
       ],
       required: true,
     },
+    dept: { type: String, trim: true },
   },
   { timestamps: true },
 );

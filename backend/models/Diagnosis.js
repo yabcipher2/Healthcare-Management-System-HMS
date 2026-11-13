@@ -43,6 +43,8 @@ const diagnosisSchema = new mongoose.Schema({
   ],
   radiologyRequest: {
     region: String,
+    // A single encounter can request several imaging protocols.
+    regions: [{ type: String }],
     indication: String,
     urgency: String,
     reportText: String,

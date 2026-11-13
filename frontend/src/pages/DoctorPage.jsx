@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   User,
   Activity,
@@ -11,6 +11,7 @@ import {
   CheckCircle,
   ShieldAlert,
   FlaskConical,
+  Clock,
   Plus,
   Search,
   ChevronRight,
@@ -34,6 +35,7 @@ import {
   UserPlus,
   Bed,
 } from "lucide-react";
+import SidebarCollapseButton from "../components/SidebarCollapseButton";
 import {
   logAudit,
   fetchAuditLogs,
@@ -41,23 +43,34 @@ import {
 } from "../utils/audit";
 import NotificationBell from "../components/NotificationBell";
 
-export default function DoctorPage({ onLogout }) {
+export default function DoctorPage({ onLogout, onNavigateToPharmacy }) {
   // Navigation State Layout Matrix
   const [activeTab, setActiveTab] = useState("dashboard"); // dashboard, consultationQueue, doctorAudit
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [emrSubTab, setEmrSubTab] = useState("history"); // history, nurse, laboratory, radiology, pharmacy, liaison
   const [appointments, setAppointments] = useState([]);
   const [appointmentsLoading, setAppointmentsLoading] = useState(false);
   const [aptSubTab, setAptSubTab] = useState("list"); // list, create
   const [aptForm, setAptForm] = useState({
     patientName: "",
+    // Resolved from the patient registry by name - never typed or invented.
     patientCardId: "",
     appointmentDate: "",
     appointmentTime: "",
     reason: "",
-    department: "",
   });
   const [aptSubmitting, setAptSubmitting] = useState(false);
   const [aptMessage, setAptMessage] = useState("");
+  // Registry matches for the typed name; the card ID comes from here.
+  const [aptMatches, setAptMatches] = useState([]);
+  const [aptLookupState, setAptLookupState] = useState("idle");
+  // Ticking clock so "due soon" / "expired" alerts stay correct while the
+  // appointments view is left open.
+  const [now, setNow] = useState(() => Date.now());
+  const appointmentAlertNotified = useRef(false);
+  // Last imaging status seen per open card, so a report arriving from the
+  // ultrasound unit is announced exactly once.
+  const imagingStatusRef = useRef({});
   const [editingAppointment, setEditingAppointment] = useState(null);
   const [editAptForm, setEditAptForm] = useState({
     appointmentDate: "",
@@ -95,6 +108,11 @@ export default function DoctorPage({ onLogout }) {
 
   const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
   const hospitalLogo = "/mesra icon.png";
+
+  // Scan images are stored as server paths (older records may hold data URLs),
+  // so only relative upload paths need the API host prefixed.
+  const mediaUrl = (url) =>
+    typeof url === "string" && url.startsWith("/uploads/") ? `${API_URL}${url}` : url;
 
   // Shared auth header builder for inter-department API calls (Ward, Appointments, etc.)
   const getAuthHeaders = useCallback(
@@ -277,6 +295,109 @@ export default function DoctorPage({ onLogout }) {
     setTimeout(() => setGlobalBannerMessage(null), 5000);
   };
 
+  useEffect(() => {
+    const tick = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(tick);
+  }, []);
+
+  // An appointment is stored as a date (YYYY-MM-DD) plus an "HH:MM" time, so
+  // the two are combined here to know whether it is due soon or already past.
+  const appointmentMoment = (apt) => {
+    const day = String(apt?.appointmentDate || "").slice(0, 10);
+    const time = String(apt?.appointmentTime || "").slice(0, 5);
+    if (!day || !time) return null;
+    const when = new Date(`${day}T${time}:00`);
+    return Number.isNaN(when.getTime()) ? null : when;
+  };
+
+  const appointmentAlerts = useMemo(() => {
+    const soonWindowMs = 30 * 60 * 1000;
+    return appointments
+      .filter((apt) => apt.status === "Scheduled")
+      .map((apt) => {
+        const when = appointmentMoment(apt);
+        if (!when) return null;
+        const diff = when.getTime() - now;
+        if (diff < 0) {
+          const mins = Math.abs(Math.round(diff / 60000));
+          return {
+            apt,
+            tone: "expired",
+            label:
+              mins >= 60
+                ? `expired ${Math.round(mins / 60)}h ago`
+                : `expired ${mins}m ago`,
+          };
+        }
+        if (diff <= soonWindowMs) {
+          const mins = Math.round(diff / 60000);
+          return { apt, tone: "soon", label: mins <= 0 ? "due now" : `due in ${mins}m` };
+        }
+        return null;
+      })
+      .filter(Boolean);
+  }, [appointments, now]);
+
+  // One banner per session so a doctor who is not on the schedule tab still
+  // hears about a slot that is about to start or has already passed.
+  useEffect(() => {
+    if (!appointmentAlerts.length || appointmentAlertNotified.current) return;
+    appointmentAlertNotified.current = true;
+    const expired = appointmentAlerts.filter((a) => a.tone === "expired").length;
+    const soon = appointmentAlerts.length - expired;
+    triggerSystemBanner(
+      `APPOINTMENT ALERT: ${expired} expired and ${soon} due within 30 minutes. Review My Appointments.`,
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appointmentAlerts]);
+
+  // The card ID is never typed: it is looked up in the patient registry from the
+  // name entered in the appointment form, so every appointment points at a real
+  // registered record.
+  useEffect(() => {
+    const name = aptForm.patientName.trim();
+    if (activeTab !== "myAppointments" || name.length < 2) {
+      setAptMatches([]);
+      setAptLookupState("idle");
+      return;
+    }
+
+    setAptLookupState("searching");
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      try {
+        const response = await fetch(
+          `${API_URL}/api/doctor/patients/lookup?name=${encodeURIComponent(name)}`,
+          { headers: getAuthHeaders() },
+        );
+        if (response.status === 401) {
+          localStorage.removeItem("token");
+          onLogout?.();
+          return;
+        }
+        const data = await response.json();
+        if (cancelled) return;
+        const matches = (data?.data || []).filter((match) => match.cardId);
+        setAptMatches(matches);
+        setAptLookupState(matches.length ? "found" : "missing");
+        setAptForm((previous) => ({
+          ...previous,
+          patientCardId: matches.length === 1 ? matches[0].cardId : "",
+        }));
+      } catch {
+        if (cancelled) return;
+        setAptMatches([]);
+        setAptLookupState("missing");
+      }
+    }, 350);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aptForm.patientName, activeTab]);
+
   // Secure Audit Actions Hook Connections
   const loadAuditAlertsCount = useCallback(async () => {
     try {
@@ -450,6 +571,11 @@ export default function DoctorPage({ onLogout }) {
     syncSelectedPatientNode();
    }, [selectedCaseId, API_URL]);
 
+  const imagingReadyCases = useMemo(
+    () => cases.filter((c) => c.radiology?.imagingStatus === "Results Available"),
+    [cases],
+  );
+
   const emergencyCases = useMemo(() => {
     return cases.filter(
       (c) =>
@@ -622,16 +748,25 @@ export default function DoctorPage({ onLogout }) {
         radiology: {
           imagingStatus: "Pending Ultrasound Scan",
           requestedModalities: regionsToDispatch,
+          requestedModality: regionsToDispatch[0],
           clinicalIndication: radiologyForm.clinicalIndication,
           urgencyLevel: radiologyForm.urgencyLevel,
           authorizingPhysician: doctorInfo.name,
+          timestamp: new Date().toISOString(),
+          reportText: "",
+          imageUrls: [],
+          resultsTimestamp: null,
+          releasedBy: "",
         },
       }));
 
+      imagingStatusRef.current[selectedCase._id] = "Pending Ultrasound Scan";
       triggerSystemBanner(
-        `SUCCESS: Imaging request pipeline initiated securely for ${regionsToDispatch.length} region(s). Flagged tracking code to ultrasound department node logs.`,
+        `SUCCESS: Imaging request for ${regionsToDispatch.join(", ")} dispatched to the ultrasound node. The card is now in the Radiology queue until the sonographer signs the report.`,
       );
-      setEmrSubTab("pharmacy");
+      window.alert(
+        `Imaging request sent successfully to the Ultrasound Unit for ${selectedCase.patientName} (${regionsToDispatch.join(", ")}).`,
+      );
     } catch (err) {
       alert(err.message || "Radiology dispatch error.");
     }
@@ -835,14 +970,12 @@ export default function DoctorPage({ onLogout }) {
             Authorization: `Bearer ${storedToken}`,
           },
           body: JSON.stringify({
-            historyPresentIllness:
-              historyForm.historyPresentIllness ||
-              "Completed Standard Physical System Checks",
-            physicalExamination:
-              historyForm.physicalExamination ||
-              "Evaluated by Department Representative",
-            icd11Diagnosis:
-              historyForm.icd11Diagnosis || "Z00.0 General Medical Examination",
+            returnToReception: true,
+            // Send exactly what was documented. The server archives this visit
+            // into the patient's history folder and clears the visit tabs.
+            historyPresentIllness: historyForm.historyPresentIllness || "",
+            physicalExamination: historyForm.physicalExamination || "",
+            icd11Diagnosis: historyForm.icd11Diagnosis || "",
             pastMedicalHistory: historyForm.pastMedicalHistory || "",
             familyHistory: historyForm.familyHistory || "",
             allergies: historyForm.allergies || "",
@@ -922,6 +1055,13 @@ export default function DoctorPage({ onLogout }) {
         dischargeDate: "",
         medicationIntake: "",
       });
+      setLiaisonMessage("");
+      setTransferForm({
+        targetFacility: "",
+        clinicalReason: "",
+        admissionUrgency: "Routine",
+      });
+      setPatientAdmissionRequests([]);
       setPatientHistory([]);
       setHistoryFetched(false);
       setHistoryDetailView(null);
@@ -947,15 +1087,42 @@ export default function DoctorPage({ onLogout }) {
     }
   };
 
+  // Native date/time controls ignore typed input in some browsers and only
+  // react to their tiny picker icon, which makes the field look dead. Open the
+  // picker on any click or focus so the field always responds.
+  const openNativePicker = (event) => {
+    const field = event.currentTarget;
+    if (field && typeof field.showPicker === "function") {
+      try {
+        field.showPicker();
+      } catch {
+        // Picker already open or blocked by the browser - typing still works.
+      }
+    }
+  };
+
   const handleCreateAppointment = async (e) => {
     e.preventDefault();
     if (
       !aptForm.patientName.trim() ||
-      !aptForm.patientCardId.trim() ||
       !aptForm.appointmentDate ||
       !aptForm.appointmentTime
     ) {
-      setAptMessage("Patient name, card ID, date and time are required.");
+      setAptMessage("Patient name, date and time are required.");
+      return;
+    }
+    if (!aptForm.patientCardId.trim()) {
+      setAptMessage(
+        "No registered patient record was found for that name. Register the patient at reception first.",
+      );
+      return;
+    }
+    // A slot in the past would show as expired the moment it is saved.
+    const scheduledAt = new Date(
+      `${aptForm.appointmentDate}T${String(aptForm.appointmentTime).slice(0, 5)}:00`,
+    );
+    if (!Number.isNaN(scheduledAt.getTime()) && scheduledAt.getTime() < Date.now()) {
+      setAptMessage("That appointment date and time has already passed. Choose a future slot.");
       return;
     }
     setAptSubmitting(true);
@@ -991,8 +1158,9 @@ export default function DoctorPage({ onLogout }) {
         appointmentDate: "",
         appointmentTime: "",
         reason: "",
-        department: "",
       });
+      setAptMatches([]);
+      setAptLookupState("idle");
       setAptSubTab("list");
       fetchAppointments();
     } catch (err) {
@@ -1489,9 +1657,11 @@ export default function DoctorPage({ onLogout }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [emrSubTab, selectedCase?._id]);
 
-  // Fetch updated nurse assignment status when on nurse tab
+  // Keep the open card in sync with the server. This runs on every EMR
+  // sub-tab so the nurse handoff and the ward/liaison request both stay on
+  // screen until the card is returned to reception.
   useEffect(() => {
-    if (emrSubTab !== "nurse" || !selectedCase?._id) return;
+    if (!selectedCase?._id) return;
     
     const fetchNurseStatus = async () => {
       try {
@@ -1502,25 +1672,96 @@ export default function DoctorPage({ onLogout }) {
         if (response.ok) {
           const data = await response.json();
           if (data.success && data.data) {
+            const fresh = data.data;
+
+            // Ultra → doctor handoff: the sonographer's release flips the card
+            // back to Consultation. Announce it and open the imaging tab so the
+            // doctor sees the report instead of having to hunt for it.
+            const imagingStatus = fresh.radiology?.imagingStatus || "";
+            if (
+              imagingStatusRef.current[fresh._id] ===
+                "Pending Ultrasound Scan" &&
+              imagingStatus === "Results Available"
+            ) {
+              setEmrSubTab("radiology");
+              triggerSystemBanner(
+                `IMAGING REPORT RECEIVED: ${fresh.patientName} — ${fresh.radiology?.releasedBy || "Ultrasound Unit"} released the scan report.`,
+              );
+            }
+            imagingStatusRef.current[fresh._id] = imagingStatus;
+
+            const stillInPipeline = [
+              "Consultation",
+              "Laboratory",
+              "Radiology",
+              "Pharmacy",
+              "Billing",
+              "Admitted",
+              "Ward",
+            ].includes(fresh.currentStatus);
+
             setSelectedCase((prev) => ({
               ...prev,
-              assignedNurseName: data.data.assignedNurseName || prev.assignedNurseName,
-              assignedNurseDepartment: data.data.assignedNurseDepartment || prev.assignedNurseDepartment,
-              doctorInstructions: data.data.doctorInstructions || prev.doctorInstructions,
-              carePlan: data.data.carePlan || prev.carePlan,
-              nurseAccepted: data.data.nurseAccepted !== undefined ? data.data.nurseAccepted : prev.nurseAccepted,
-              nurseResponse: data.data.nurseResponse || prev.nurseResponse,
+              currentStatus: fresh.currentStatus || prev.currentStatus,
+              // Once the card is back at reception, nothing from the nursing
+              // handoff may keep showing on the doctor's screen.
+              assignedNurseName: stillInPipeline
+                ? fresh.assignedNurseName || prev.assignedNurseName
+                : "",
+              assignedNurseDepartment: stillInPipeline
+                ? fresh.assignedNurseDepartment || prev.assignedNurseDepartment
+                : "",
+              doctorInstructions: stillInPipeline
+                ? fresh.doctorInstructions || prev.doctorInstructions
+                : "",
+              carePlan: stillInPipeline ? fresh.carePlan || prev.carePlan : "",
+              nurseAccepted: stillInPipeline ? !!fresh.nurseAccepted : false,
+              nurseResponse: stillInPipeline ? fresh.nurseResponse || "" : "",
+              nurseNotes: stillInPipeline ? fresh.nurseNotes || "" : "",
+              nurseStatus: stillInPipeline ? fresh.nurseStatus || "" : "",
+              liaison: stillInPipeline ? fresh.liaison || prev.liaison : null,
+              // Lab and imaging results are written by those departments, so the
+              // open card has to keep pulling them until the visit is closed.
+              laboratory: stillInPipeline
+                ? fresh.laboratory || prev.laboratory
+                : prev.laboratory,
+              radiology: stillInPipeline
+                ? fresh.radiology || prev.radiology
+                : prev.radiology,
             }));
-            
-            // Populate form if data exists
-            if (data.data.doctorInstructions || data.data.carePlan) {
+
+            if (!stillInPipeline) {
+              setNurseForm({
+                selectedDepartment: "",
+                selectedNurse: "",
+                doctorInstructions: "",
+                carePlan: "",
+                status: "Pending Meds",
+              });
+              setLiaisonForm({
+                selectedDepartment: "",
+                selectedWardNurse: "",
+                admissionUrgency: "Routine",
+                clinicalReason: "",
+                admissionDate: "",
+                dischargeDate: "",
+                medicationIntake: "",
+              });
+              setLiaisonMessage("");
+              setPatientAdmissionRequests([]);
+            } else if (data.data.doctorInstructions || data.data.carePlan) {
               setNurseForm((prev) => ({
                 ...prev,
-                selectedDepartment: data.data.assignedNurseDepartment || prev.selectedDepartment,
-                selectedNurse: data.data.assignedNurseName || prev.selectedNurse,
-                doctorInstructions: data.data.doctorInstructions || prev.doctorInstructions,
-                carePlan: data.data.carePlan || prev.carePlan,
-                status: data.data.status || prev.status,
+                selectedDepartment:
+                  prev.selectedDepartment ||
+                  data.data.assignedNurseDepartment ||
+                  "",
+                selectedNurse:
+                  prev.selectedNurse || data.data.assignedNurseName || "",
+                doctorInstructions:
+                  prev.doctorInstructions || data.data.doctorInstructions || "",
+                carePlan: prev.carePlan || data.data.carePlan || "",
+                status: prev.status || data.data.status || "Pending Meds",
               }));
             }
           }
@@ -1535,6 +1776,27 @@ export default function DoctorPage({ onLogout }) {
     const interval = setInterval(fetchNurseStatus, 10000);
     return () => clearInterval(interval);
   }, [emrSubTab, selectedCase?._id, API_URL, getAuthHeaders]);
+
+  // Restore the ward admission / liaison request saved on this card. It belongs
+  // to this visit, so it reappears whenever the doctor reopens the card and is
+  // only cleared when the card goes back to reception.
+  useEffect(() => {
+    const liaison = selectedCase?.liaison;
+    setLiaisonForm({
+      selectedDepartment: liaison?.selectedDepartment || "",
+      selectedWardNurse: liaison?.selectedWardNurse || "",
+      admissionUrgency: liaison?.admissionUrgency || "Routine",
+      clinicalReason: liaison?.clinicalReason || "",
+      admissionDate: liaison?.admissionDate || "",
+      dischargeDate: liaison?.dischargeDate || "",
+      medicationIntake: liaison?.medicationIntake || "",
+    });
+    if (!selectedCase?._id) {
+      setLiaisonMessage("");
+      setPatientAdmissionRequests([]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCase?._id]);
 
   // Populate History form when patient data is loaded
   useEffect(() => {
@@ -1973,13 +2235,13 @@ export default function DoctorPage({ onLogout }) {
                           {historyDetailView.radiologyRequest.imageUrls.map((url, i) => (
                             <a
                               key={i}
-                              href={url}
+                              href={mediaUrl(url)}
                               target="_blank"
                               rel="noreferrer"
                               className="aspect-square rounded-lg overflow-hidden border border-slate-200 bg-slate-50 block"
                             >
                               <img
-                                src={url}
+                                src={mediaUrl(url)}
                                 alt={`Scan ${i + 1}`}
                                 className="w-full h-full object-cover"
                               />
@@ -2214,7 +2476,7 @@ export default function DoctorPage({ onLogout }) {
       )}
 
       {/* SIDEBAR */}
-      <aside className="w-60 bg-[#0E1B17] text-slate-300 flex flex-col justify-between shrink-0 z-30 font-mono select-none border-r border-[#29323a] sticky top-0 h-screen overflow-y-auto">
+      <aside className={`${sidebarOpen ? "w-60" : "w-16 [&_span]:hidden [&_p]:hidden [&_h3]:hidden [&_button]:justify-center [&_button]:text-[0px]"} bg-[#0E1B17] text-slate-300 flex flex-col justify-between shrink-0 z-30 font-mono select-none border-r border-[#29323a] sticky top-0 h-screen overflow-y-auto transition-all duration-300`}>
         <div>
           {/* Logo */}
           <div className="p-4 border-b border-[#29323a] flex items-center gap-2.5 bg-[#0E1B17]">
@@ -2230,6 +2492,13 @@ export default function DoctorPage({ onLogout }) {
               </span>
             </div>
           </div>
+
+          {/* Sidebar Collapse Control */}
+          <SidebarCollapseButton
+            collapsed={!sidebarOpen}
+            onToggle={() => setSidebarOpen((open) => !open)}
+            label="doctor sidebar"
+          />
 
           {/* Nav */}
           <div className="p-2.5 space-y-0.5">
@@ -2359,6 +2628,30 @@ export default function DoctorPage({ onLogout }) {
                   </div>
                 ))}
               </div>
+              {imagingReadyCases.length > 0 && (
+                <div className="bg-[#0a1510] rounded-xl border border-[#10B981]/40 p-4 shadow-sm">
+                  <div className="flex items-center gap-2 text-[#10B981] font-bold uppercase tracking-wider mb-2 font-mono text-[11px]">
+                    <CheckCircle size={14} />
+                    <span>Imaging Reports Ready For Review ({imagingReadyCases.length})</span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {imagingReadyCases.map((patient) => (
+                      <button
+                        key={patient._id}
+                        onClick={() => {
+                          setSelectedCase(patient);
+                          setActiveTab("consultationQueue");
+                          setEmrSubTab("radiology");
+                        }}
+                        className="px-3 py-1.5 bg-[#152318] hover:bg-[#1e3a26] border border-[#29323a] hover:border-[#10B981]/50 rounded-lg text-[10px] font-mono font-bold text-slate-200 flex items-center gap-1.5 transition"
+                      >
+                        <FlaskConical size={11} className="text-[#10B981]" />
+                        {patient.patientName} · {patient.cardId}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div className="bg-[#0a1510] rounded-xl border border-[#29323a] p-4 shadow-sm">
                 <div className="flex items-center gap-2 text-white font-bold uppercase tracking-wider mb-2 font-mono text-[11px]">
                   <AlertCircle size={14} className="text-[#10B981]" />
@@ -2406,7 +2699,14 @@ export default function DoctorPage({ onLogout }) {
                       <tbody className="divide-y divide-[#29323a] text-[11px] text-slate-300">
                         {cases.slice((queuePage - 1) * queuePageSize, queuePage * queuePageSize).map((patient) => (
                           <tr key={patient.cardId || patient._id} className="hover:bg-[#152318] transition">
-                            <td className="p-3 px-4 font-bold text-white">{patient.patientName}</td>
+                            <td className="p-3 px-4 font-bold text-white">
+                              {patient.patientName}
+                              {patient.radiology?.imagingStatus === "Results Available" && (
+                                <span className="ml-2 text-[8px] font-mono font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-1.5 py-0.5 rounded uppercase align-middle">
+                                  Img Ready
+                                </span>
+                              )}
+                            </td>
                             <td className="p-3 px-4 font-mono text-[#10B981] font-bold">{patient.cardId}</td>
                             <td className="p-3 px-4">
                               <span className="text-[9px] font-mono font-bold bg-[#10B981]/20 text-[#10B981] px-2 py-0.5 rounded uppercase">{patient.currentStatus || "OPD TRIAGE"}</span>
@@ -2772,6 +3072,57 @@ export default function DoctorPage({ onLogout }) {
                 {/* SUB-VIEW 2: LABORATORY DISPATCH UTILITY GROUPING GRID */}
                 {emrSubTab === "laboratory" && (
                   <div className="space-y-4 animate-fadeIn">
+                  {selectedCase?.laboratory?.labStatus === "Completed" && (
+                    <div className="bg-white border border-emerald-200 rounded-xl shadow-sm overflow-hidden">
+                      <div className="bg-emerald-700 text-white px-3 py-2 flex items-center justify-between gap-2 font-mono">
+                        <span className="text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5">
+                          <CheckCircle size={12} /> Laboratory Results Received
+                        </span>
+                        <span className="text-[9px] font-bold uppercase truncate">
+                          {selectedCase.laboratory.releasedBy || "Laboratory Unit"}
+                          {selectedCase.laboratory.releasedAt
+                            ? ` · ${new Date(selectedCase.laboratory.releasedAt).toLocaleString()}`
+                            : ""}
+                        </span>
+                      </div>
+                      <div className="p-3 space-y-2">
+                        {Object.keys(selectedCase.laboratory.testResults || {}).length === 0 ? (
+                          <p className="text-[11px] text-slate-400 font-mono">
+                            Results were released without a value sheet.
+                          </p>
+                        ) : (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            {Object.entries(selectedCase.laboratory.testResults).map(
+                              ([test, value]) => (
+                                <div
+                                  key={test}
+                                  className="flex items-center justify-between gap-2 border border-slate-100 rounded-lg px-3 py-2 bg-slate-50"
+                                >
+                                  <span className="font-bold text-slate-700 text-[11px]">
+                                    {test}
+                                  </span>
+                                  <span className="font-mono text-slate-900 text-[11px]">
+                                    {String(value ?? "") || "—"}
+                                  </span>
+                                </div>
+                              ),
+                            )}
+                          </div>
+                        )}
+                        {selectedCase.laboratory.diagnosisReport && (
+                          <div className="border border-slate-100 rounded-lg px-3 py-2 bg-slate-50">
+                            <p className="text-[9px] font-mono font-bold text-slate-500 uppercase tracking-wider mb-1">
+                              Laboratory Impression
+                            </p>
+                            <p className="text-[11px] text-slate-800">
+                              {selectedCase.laboratory.diagnosisReport}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
                   <form
                     onSubmit={handleLaboratorySubmission}
                   >
@@ -2888,6 +3239,106 @@ export default function DoctorPage({ onLogout }) {
                 {/* SUB-VIEW 3: RADIOLOGY / ULTRASOUND REQUEST MATRIX INTERFACES */}
                 {emrSubTab === "radiology" && (
                   <div className="space-y-4 animate-fadeIn">
+                  {selectedCase?.radiology?.imagingStatus === "Pending Ultrasound Scan" && (
+                    <div className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5 font-mono">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-amber-800 flex items-center gap-1.5">
+                          <Clock size={12} /> Awaiting Ultrasound Report
+                        </span>
+                        <span className="text-[9px] font-bold uppercase text-amber-700 truncate">
+                          {selectedCase.radiology.authorizingPhysician || doctorInfo.name}
+                          {selectedCase.radiology.timestamp
+                            ? ` · referred ${new Date(selectedCase.radiology.timestamp).toLocaleString()}`
+                            : ""}
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5 mt-1.5">
+                        {(selectedCase.radiology.requestedModalities?.length > 0
+                          ? selectedCase.radiology.requestedModalities
+                          : [selectedCase.radiology.requestedModality || "Ultrasound study"]
+                        ).map((modality, i) => (
+                          <span
+                            key={i}
+                            className="bg-white text-amber-800 border border-amber-200 px-2 py-0.5 rounded text-[9px] font-bold"
+                          >
+                            {modality}
+                          </span>
+                        ))}
+                        {selectedCase.radiology.urgencyLevel && (
+                          <span className="bg-white text-slate-600 border border-amber-200 px-2 py-0.5 rounded text-[9px] font-bold uppercase">
+                            {selectedCase.radiology.urgencyLevel}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  {selectedCase?.radiology?.imagingStatus === "Results Available" && (
+                    <div className="bg-white border border-emerald-200 rounded-xl shadow-sm overflow-hidden">
+                      <div className="bg-emerald-700 text-white px-3 py-2 flex items-center justify-between gap-2 font-mono">
+                        <span className="text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5">
+                          <CheckCircle size={12} /> Imaging Report Received
+                        </span>
+                        <span className="text-[9px] font-bold uppercase truncate">
+                          {selectedCase.radiology.releasedBy || "Ultrasound Unit"}
+                          {selectedCase.radiology.resultsTimestamp
+                            ? ` · ${new Date(selectedCase.radiology.resultsTimestamp).toLocaleString()}`
+                            : ""}
+                        </span>
+                      </div>
+                      <div className="p-3 space-y-2">
+                        {(selectedCase.radiology.requestedModalities?.length > 0 ||
+                          selectedCase.radiology.requestedModality) && (
+                          <div className="flex flex-wrap gap-1.5">
+                            {(selectedCase.radiology.requestedModalities?.length > 0
+                              ? selectedCase.radiology.requestedModalities
+                              : [selectedCase.radiology.requestedModality]
+                            ).map((modality, i) => (
+                              <span
+                                key={i}
+                                className="bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded text-[9px] font-bold font-mono"
+                              >
+                                {modality}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        <div className="border border-slate-100 rounded-lg px-3 py-2 bg-slate-50">
+                          <p className="text-[9px] font-mono font-bold text-slate-500 uppercase tracking-wider mb-1">
+                            Sonographer Report
+                          </p>
+                          <p className="text-[11px] text-slate-800 whitespace-pre-wrap leading-relaxed">
+                            {selectedCase.radiology.reportText ||
+                              "Report released without narrative findings."}
+                          </p>
+                        </div>
+                        {selectedCase.radiology.imageUrls?.length > 0 && (
+                          <div className="border border-slate-100 rounded-lg px-3 py-2 bg-slate-50">
+                            <p className="text-[9px] font-mono font-bold text-slate-500 uppercase tracking-wider mb-2">
+                              Attached Scan Images ({selectedCase.radiology.imageUrls.length})
+                            </p>
+                            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                              {selectedCase.radiology.imageUrls.map((url, i) => (
+                                <a
+                                  key={i}
+                                  href={mediaUrl(url)}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="aspect-square rounded-lg overflow-hidden border border-slate-200 bg-white block hover:border-emerald-400 transition"
+                                >
+                                  <img
+                                    src={mediaUrl(url)}
+                                    alt={`Scan ${i + 1}`}
+                                    className="w-full h-full object-cover"
+                                  />
+                                </a>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
                   <form
                     onSubmit={handleRadiologySubmission}
                   >
@@ -3260,8 +3711,12 @@ export default function DoctorPage({ onLogout }) {
                             </span>
                             <p className="text-slate-700 mt-0.5">
                               {selectedCase?.nurseResponse ||
+                                selectedCase?.nurseNotes ||
                                 "No response recorded yet."}
                             </p>
+                            {selectedCase?.nurseStatus && (
+                              <p className="text-slate-500 mt-1">Status: {selectedCase.nurseStatus}</p>
+                            )}
                           </div>
                           {selectedCase?.doctorInstructions && (
                             <div>
@@ -3331,7 +3786,10 @@ export default function DoctorPage({ onLogout }) {
                               <option value="">-- Select Nurse --</option>
                               {availableNurses.map((nurse) => (
                                 <option key={nurse._id || nurse.name} value={nurse.name}>
-                                  {nurse.name}
+                                  {nurse.name} — {nurse.activePatients ?? 0}{" "}
+                                  patient
+                                  {(nurse.activePatients ?? 0) === 1 ? "" : "s"}{" "}
+                                  · {nurse.availability || "Free"}
                                 </option>
                               ))}
                             </select>
@@ -3533,7 +3991,10 @@ export default function DoctorPage({ onLogout }) {
                               </option>
                               {wardNurses.map((nurse) => (
                                 <option key={nurse._id} value={nurse.name}>
-                                  {nurse.name}
+                                  {nurse.name} — {nurse.activePatients ?? 0}{" "}
+                                  patient
+                                  {(nurse.activePatients ?? 0) === 1 ? "" : "s"}{" "}
+                                  · {nurse.availability || "Free"}
                                 </option>
                               ))}
                             </select>
@@ -3710,41 +4171,69 @@ export default function DoctorPage({ onLogout }) {
                         <Activity size={13} className="text-[#3b82f6]" /> Active
                         Admission Transmission Status
                       </h4>
-                      {patientAdmissionRequests.length === 0 ? (
-                        <p className="text-[11px] text-slate-400">
-                          No pending admission or transfer requests for this
-                          patient in the Ward pipeline.
-                        </p>
-                      ) : (
-                        <div className="space-y-2">
-                          {patientAdmissionRequests.map((r) => (
-                            <div
-                              key={r._id}
-                              className="flex items-center justify-between border border-slate-100 rounded-lg px-3 py-2"
-                            >
-                              <div className="min-w-0">
-                                <p className="text-[11px] font-bold text-slate-800">
-                                  {r.preferredWard}
-                                </p>
-                                <p className="text-[10px] text-slate-500 truncate max-w-md">
-                                  {r.clinicalReason}
-                                </p>
-                              </div>
-                              <span
-                                className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase ${
-                                  r.status === "Assigned"
-                                    ? "bg-emerald-100 text-emerald-700"
-                                    : r.status === "Cancelled"
-                                      ? "bg-rose-100 text-rose-700"
-                                      : "bg-amber-100 text-amber-700"
-                                }`}
+                      {(() => {
+                        const saved = selectedCase?.liaison;
+                        const requests = [
+                          ...patientAdmissionRequests,
+                          ...(saved &&
+                          (saved.clinicalReason || saved.selectedDepartment)
+                            ? [
+                                {
+                                  _id: "card-liaison",
+                                  preferredWard:
+                                    saved.selectedDepartment || "Ward",
+                                  clinicalReason: saved.clinicalReason || "",
+                                  nurse: saved.selectedWardNurse || "",
+                                  status:
+                                    saved.status || "Pending Ward Assignment",
+                                },
+                              ]
+                            : []),
+                        ];
+                        if (requests.length === 0) {
+                          return (
+                            <p className="text-[11px] text-slate-400">
+                              No pending admission or transfer requests for this
+                              patient in the Ward pipeline.
+                            </p>
+                          );
+                        }
+                        return (
+                          <div className="space-y-2">
+                            {requests.map((r) => (
+                              <div
+                                key={r._id}
+                                className="flex items-center justify-between border border-slate-100 rounded-lg px-3 py-2"
                               >
-                                {r.status}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
+                                <div className="min-w-0">
+                                  <p className="text-[11px] font-bold text-slate-800">
+                                    {r.preferredWard}
+                                  </p>
+                                  <p className="text-[10px] text-slate-500 truncate max-w-md">
+                                    {r.clinicalReason}
+                                  </p>
+                                  {r.nurse && (
+                                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">
+                                      Ward nurse: {r.nurse}
+                                    </p>
+                                  )}
+                                </div>
+                                <span
+                                  className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase ${
+                                    r.status === "Assigned"
+                                      ? "bg-emerald-100 text-emerald-700"
+                                      : r.status === "Cancelled"
+                                        ? "bg-rose-100 text-rose-700"
+                                        : "bg-amber-100 text-amber-700"
+                                  }`}
+                                >
+                                  {r.status}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      })()}
                     </div>
                   </div>
                 )}
@@ -4052,6 +4541,33 @@ export default function DoctorPage({ onLogout }) {
               <div className="p-4">
                 {aptSubTab === "list" && (
                   <>
+                    {appointmentAlerts.length > 0 && (
+                      <div className="mb-3 space-y-1.5">
+                        {appointmentAlerts.map(({ apt, tone, label }) => (
+                          <div
+                            key={`alert-${apt._id}`}
+                            className={`flex items-start gap-2 border rounded-lg px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-wide ${
+                              tone === "expired"
+                                ? "bg-rose-50 border-rose-200 text-rose-700"
+                                : "bg-amber-50 border-amber-200 text-amber-700"
+                            }`}
+                          >
+                            <AlertCircle size={13} className="mt-[1px] shrink-0" />
+                            <span>
+                              {tone === "expired"
+                                ? "Appointment expired"
+                                : "Appointment due soon"}{" "}
+                              — {apt.patientName} ({apt.patientCardId}) ·{" "}
+                              {apt.appointmentDate
+                                ? new Date(apt.appointmentDate).toLocaleDateString()
+                                : ""}{" "}
+                              {apt.appointmentTime} · {label}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
                     {appointmentsLoading ? (
                       <p className="text-[11px] font-mono text-slate-400 animate-pulse">Loading appointments...</p>
                     ) : appointments.length === 0 ? (
@@ -4066,7 +4582,6 @@ export default function DoctorPage({ onLogout }) {
                             <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-bold uppercase text-slate-500 font-mono">
                               <th className="p-3 px-4">Patient</th>
                               <th className="p-3 px-4">Card ID</th>
-                              <th className="p-3 px-4">Department</th>
                               <th className="p-3 px-4">Date</th>
                               <th className="p-3 px-4">Time</th>
                               <th className="p-3 px-4">Reason</th>
@@ -4079,7 +4594,6 @@ export default function DoctorPage({ onLogout }) {
                               <tr key={apt._id} className="hover:bg-slate-50/60 transition">
                                 <td className="p-3 px-4 text-[11px] font-bold text-slate-800">{apt.patientName}</td>
                                 <td className="p-3 px-4 text-[11px] font-mono text-slate-500">{apt.patientCardId}</td>
-                                <td className="p-3 px-4 text-[11px] text-slate-600">{apt.department || "N/A"}</td>
                                 <td className="p-3 px-4 text-[11px] font-mono text-slate-600">
                                   {apt.appointmentDate ? new Date(apt.appointmentDate).toLocaleDateString() : "N/A"}
                                 </td>
@@ -4137,7 +4651,9 @@ export default function DoctorPage({ onLogout }) {
                                 type="date"
                                 value={editAptForm.appointmentDate}
                                 onChange={(e) => setEditAptForm(p => ({...p, appointmentDate: e.target.value}))}
-                                className="w-full border border-slate-300 rounded px-3 py-2 text-[11px]"
+                                onClick={openNativePicker}
+                                onFocus={openNativePicker}
+                                className="w-full border border-slate-300 rounded px-3 py-2 text-[11px] text-slate-900 placeholder:text-slate-400"
                                 required
                               />
                             </div>
@@ -4147,7 +4663,9 @@ export default function DoctorPage({ onLogout }) {
                                 type="time"
                                 value={editAptForm.appointmentTime}
                                 onChange={(e) => setEditAptForm(p => ({...p, appointmentTime: e.target.value}))}
-                                className="w-full border border-slate-300 rounded px-3 py-2 text-[11px]"
+                                onClick={openNativePicker}
+                                onFocus={openNativePicker}
+                                className="w-full border border-slate-300 rounded px-3 py-2 text-[11px] text-slate-900 placeholder:text-slate-400"
                                 required
                               />
                             </div>
@@ -4156,7 +4674,7 @@ export default function DoctorPage({ onLogout }) {
                               <textarea
                                 value={editAptForm.reason}
                                 onChange={(e) => setEditAptForm(p => ({...p, reason: e.target.value}))}
-                                className="w-full border border-slate-300 rounded px-3 py-2 text-[11px] h-20"
+                                className="w-full border border-slate-300 rounded px-3 py-2 text-[11px] text-slate-900 placeholder:text-slate-400 h-20"
                               />
                             </div>
                             <div>
@@ -4164,7 +4682,7 @@ export default function DoctorPage({ onLogout }) {
                               <select
                                 value={editAptForm.status}
                                 onChange={(e) => setEditAptForm(p => ({...p, status: e.target.value}))}
-                                className="w-full border border-slate-300 rounded px-3 py-2 text-[11px]"
+                                className="w-full border border-slate-300 rounded px-3 py-2 text-[11px] text-slate-900 placeholder:text-slate-400"
                               >
                                 <option value="Scheduled">Scheduled</option>
                                 <option value="Completed">Completed</option>
@@ -4213,22 +4731,63 @@ export default function DoctorPage({ onLogout }) {
                           type="text"
                           value={aptForm.patientName}
                           onChange={(e) => setAptForm((p) => ({ ...p, patientName: e.target.value }))}
-                          className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-[11px] focus:outline-none focus:border-slate-500 font-mono"
-                          placeholder="Enter patient full name"
+                          className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-[11px] text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-slate-500 font-mono"
+                          placeholder="Enter registered patient name"
                           required
                         />
+                        {aptLookupState === "searching" && (
+                          <p className="mt-1 text-[10px] font-mono text-slate-400">
+                            Searching patient registry…
+                          </p>
+                        )}
+                        {aptLookupState === "missing" && (
+                          <p className="mt-1 text-[10px] font-mono font-bold uppercase tracking-wide text-rose-600">
+                            No registered patient matches that name. Register them at reception first.
+                          </p>
+                        )}
+                        {aptLookupState === "found" && aptMatches.length === 1 && (
+                          <p className="mt-1 text-[10px] font-mono font-bold uppercase tracking-wide text-emerald-600">
+                            Matched registry record · {aptMatches[0].currentStatus || "Registration"}
+                          </p>
+                        )}
+                        {aptLookupState === "found" && aptMatches.length > 1 && (
+                          <div className="mt-1.5 space-y-1">
+                            <p className="text-[10px] font-mono font-bold uppercase tracking-wide text-amber-600">
+                              {aptMatches.length} records match — choose the patient:
+                            </p>
+                            {aptMatches.map((match) => (
+                              <button
+                                type="button"
+                                key={match._id}
+                                onClick={() =>
+                                  setAptForm((p) => ({
+                                    ...p,
+                                    patientName: match.patientName,
+                                    patientCardId: match.cardId,
+                                  }))
+                                }
+                                className={`block w-full text-left px-2 py-1 rounded border text-[10px] font-mono transition ${
+                                  aptForm.patientCardId === match.cardId
+                                    ? "border-slate-900 bg-slate-100 text-slate-900"
+                                    : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                                }`}
+                              >
+                                {match.patientName} — {match.cardId} · {match.currentStatus || "Registration"}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
                       <div>
                         <label className="block text-[10px] font-mono font-bold text-slate-500 uppercase tracking-wider mb-1">
-                          Patient Card ID
+                          Patient ID (from registry)
                         </label>
                         <input
                           type="text"
                           value={aptForm.patientCardId}
-                          onChange={(e) => setAptForm((p) => ({ ...p, patientCardId: e.target.value }))}
-                          className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-[11px] focus:outline-none focus:border-slate-500 font-mono"
-                          placeholder="e.g., MR-123456"
-                          required
+                          readOnly
+                          placeholder="Filled from patient name"
+                          className="w-full bg-slate-100 border border-slate-200 rounded-lg px-3 py-2 text-[11px] text-slate-900 placeholder:text-slate-400 font-mono cursor-not-allowed"
                         />
                       </div>
                     </div>
@@ -4242,7 +4801,9 @@ export default function DoctorPage({ onLogout }) {
                           type="date"
                           value={aptForm.appointmentDate}
                           onChange={(e) => setAptForm((p) => ({ ...p, appointmentDate: e.target.value }))}
-                          className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-[11px] focus:outline-none focus:border-slate-500 font-mono"
+                          onClick={openNativePicker}
+                          onFocus={openNativePicker}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-[11px] text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-slate-500 font-mono"
                           required
                         />
                       </div>
@@ -4254,33 +4815,12 @@ export default function DoctorPage({ onLogout }) {
                           type="time"
                           value={aptForm.appointmentTime}
                           onChange={(e) => setAptForm((p) => ({ ...p, appointmentTime: e.target.value }))}
-                          className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-[11px] focus:outline-none focus:border-slate-500 font-mono"
+                          onClick={openNativePicker}
+                          onFocus={openNativePicker}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-[11px] text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-slate-500 font-mono"
                           required
                         />
                       </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-[10px] font-mono font-bold text-slate-500 uppercase tracking-wider mb-1">
-                        Department
-                      </label>
-                      <select
-                        value={aptForm.department}
-                        onChange={(e) => setAptForm((p) => ({ ...p, department: e.target.value }))}
-                        className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-[11px] focus:outline-none focus:border-slate-500 font-mono"
-                      >
-                        <option value="">-- Select Department --</option>
-                        <option value="General Medicine">General Medicine</option>
-                        <option value="Surgery">Surgery</option>
-                        <option value="Pediatrics">Pediatrics</option>
-                        <option value="Obstetrics & Gynecology">Obstetrics & Gynecology</option>
-                        <option value="Cardiology">Cardiology</option>
-                        <option value="Orthopedics">Orthopedics</option>
-                        <option value="ENT">ENT</option>
-                        <option value="Ophthalmology">Ophthalmology</option>
-                        <option value="Dermatology">Dermatology</option>
-                        <option value="Psychiatry">Psychiatry</option>
-                      </select>
                     </div>
 
                     <div>
@@ -4290,7 +4830,7 @@ export default function DoctorPage({ onLogout }) {
                       <textarea
                         value={aptForm.reason}
                         onChange={(e) => setAptForm((p) => ({ ...p, reason: e.target.value }))}
-                        className="w-full h-24 bg-slate-50 border border-slate-200 rounded-lg p-2 text-[11px] focus:outline-none focus:border-slate-500 font-mono"
+                        className="w-full h-24 bg-slate-50 border border-slate-200 rounded-lg p-2 text-[11px] text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-slate-500 font-mono"
                         placeholder="Reason for appointment or clinical notes..."
                       />
                     </div>

@@ -86,16 +86,45 @@ router.post("/change-password", protectRoute, async (req, res) => {
 
 // @route   POST /api/auth/login (Public Access)
 router.post("/login", async (req, res) => {
-  const { email, password } = req.body || {};
+  console.log('🔐 Login attempt received:', { email: req.body?.email, hasPassword: !!req.body?.password });
+  
+  // Emails are stored lowercase, and query filters do not run schema setters,
+  // so a login typed as "Admin@Mesra.com" would otherwise never match.
+  const email = (req.body?.email || "").toString().trim().toLowerCase();
+  const password = req.body?.password;
   if (!email || !password) {
+    console.log('❌ Missing email or password');
     return res
       .status(400)
       .json({ success: false, message: "Email and password are required." });
   }
 
   try {
+    console.log('📧 Looking up user:', email);
     const user = await User.findOne({ email });
-    if (user && (await user.matchPassword(password))) {
+    console.log('👤 User found:', !!user);
+    
+    if (!user) {
+      console.log('❌ User not found');
+      return res
+        .status(401)
+        .json({ success: false, message: "Invalid email or password." });
+    }
+    
+    // Check if user has a password field
+    if (!user.password) {
+      console.log('❌ User has no password hash in database');
+      return res
+        .status(500)
+        .json({ success: false, message: "Account configuration error. Please contact administrator." });
+    }
+    
+    console.log('🔒 Comparing passwords...');
+    const isPasswordMatch = await user.matchPassword(password);
+    console.log('🔑 Password matched:', isPasswordMatch);
+    
+    if (isPasswordMatch) {
+      console.log('✅ Password matched - generating token');
       const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
         expiresIn: "1d",
       });
@@ -109,6 +138,7 @@ router.post("/login", async (req, res) => {
           await user.save();
         }
       }
+      console.log('✅ Login successful, sending response');
       res.json({
         success: true,
         token,
@@ -122,11 +152,13 @@ router.post("/login", async (req, res) => {
         },
       });
     } else {
+      console.log('❌ Invalid credentials - password mismatch');
       res
         .status(401)
-        .json({ success: false, message: "Invalid active credentials" });
+        .json({ success: false, message: "Invalid email or password." });
     }
   } catch (error) {
+    console.error('❌ Login error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });

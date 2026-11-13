@@ -1,9 +1,46 @@
 const NurseAssignment = require("../models/NurseAssignment");
 const PatientRecord = require("../models/PatientRecord");
 
+// Same definition used by the doctor's nurse workload counters.
+const ACTIVE_PATIENT_STATUSES = [
+  "Consultation",
+  "Laboratory",
+  "Radiology",
+  "Pharmacy",
+  "Billing",
+  "Admitted",
+  "Ward",
+];
+
 const getAssignments = async (req, res) => {
   try {
-    const assignments = await NurseAssignment.find({}).sort({ createdAt: -1 });
+    // A nurse must only see the patients a doctor explicitly handed to them.
+    // Returning every assignment made one dispatch look like it went to the
+    // whole department. Administrators and triage still get the full board.
+    const isNurse = req.user?.role === "Nurse";
+    const query = isNurse ? { assignedNurse: req.user.name } : {};
+
+    let assignments = await NurseAssignment.find(query).sort({ createdAt: -1 });
+
+    // Keep the station board and the doctor's workload counters on exactly the
+    // same definition: patients still inside the clinical pipeline.
+    if (isNurse && assignments.length) {
+      const patientIds = assignments
+        .map((assignment) => assignment.patientId)
+        .filter(Boolean);
+
+      const activeIds = await PatientRecord.find({
+        _id: { $in: patientIds },
+        currentStatus: { $in: ACTIVE_PATIENT_STATUSES },
+      }).distinct("_id");
+
+      const activeSet = new Set(activeIds.map(String));
+      assignments = assignments.filter(
+        (assignment) =>
+          !assignment.patientId || activeSet.has(String(assignment.patientId)),
+      );
+    }
+
     res.status(200).json({ success: true, count: assignments.length, data: assignments });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -52,6 +89,12 @@ const updateNurseNotes = async (req, res) => {
       { returnDocument: "after", runValidators: true }
     );
     if (!assignment) return res.status(404).json({ success: false, message: "Assignment not found." });
+    await PatientRecord.findByIdAndUpdate(assignment.patientId, {
+      $set: {
+        nurseNotes: assignment.nurseNotes,
+        medicationAdministered: assignment.medicationAdministered,
+      },
+    });
     res.status(200).json({ success: true, data: assignment });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
@@ -67,6 +110,16 @@ const updateCareStatus = async (req, res) => {
       { returnDocument: "after", runValidators: true }
     );
     if (!assignment) return res.status(404).json({ success: false, message: "Assignment not found." });
+    // A routine progress note must not move the encounter forward. Previously
+    // anything other than "Stable" pushed the patient into "Ward", which made
+    // the doctor's queue and the nurse's own board drop the patient.
+    const patientStatus =
+      careStatusUpdate === "Observations Complete / Stable"
+        ? "Billing"
+        : "Consultation";
+    await PatientRecord.findByIdAndUpdate(assignment.patientId, {
+      $set: { nurseStatus: assignment.status, currentStatus: patientStatus },
+    });
     res.status(200).json({ success: true, data: assignment });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
@@ -107,6 +160,7 @@ const updateDoctorObservation = async (req, res) => {
         age: patient.age,
         gender: patient.gender,
         assignedStation: department || patient.triageDepartment || "General",
+        assignedNurse: nurseName || "",
         assignedDoctor: req.user?.name || "Doctor",
         status: status || "Pending Meds",
         carePlan: carePlan || "",
@@ -118,6 +172,7 @@ const updateDoctorObservation = async (req, res) => {
       // Update existing assignment with doctor's instructions
       console.log("📝 Updating existing assignment:", assignment._id);
       assignment.assignedStation = department || assignment.assignedStation;
+      assignment.assignedNurse = nurseName || assignment.assignedNurse;
       assignment.assignedDoctor = req.user?.name || assignment.assignedDoctor;
       assignment.status = status || assignment.status;
       assignment.carePlan = carePlan || assignment.carePlan;
@@ -143,14 +198,20 @@ const updateDoctorObservation = async (req, res) => {
 const updateNurseResponse = async (req, res) => {
   try {
     const assignmentId = req.params.id;
-    const { nurseResponse, nurseAccepted } = req.body;
+    const { nurseResponse, nurseAccepted, careStatusUpdate, nurseSummary } =
+      req.body;
+
+    // Always store the newest response. Freezing the first message meant the
+    // doctor kept reading an outdated summary after the nurse edited it.
+    const responseUpdate = { respondedAt: new Date() };
+    if (nurseResponse !== undefined) responseUpdate.nurseResponse = nurseResponse;
+    if (nurseAccepted !== undefined) responseUpdate.nurseAccepted = nurseAccepted;
+    if (careStatusUpdate) responseUpdate.status = careStatusUpdate;
+    if (nurseSummary !== undefined) responseUpdate.nurseNotes = nurseSummary;
 
     const assignment = await NurseAssignment.findByIdAndUpdate(
       assignmentId,
-      { 
-        nurseResponse: nurseResponse || "",
-        nurseAccepted: nurseAccepted !== undefined ? nurseAccepted : false
-      },
+      responseUpdate,
       { returnDocument: "after", runValidators: true }
     );
 
@@ -160,6 +221,15 @@ const updateNurseResponse = async (req, res) => {
         message: "Assignment not found." 
       });
     }
+
+    await PatientRecord.findByIdAndUpdate(assignment.patientId, {
+      $set: {
+        nurseResponse: assignment.nurseResponse,
+        nurseAccepted: assignment.nurseAccepted,
+        nurseStatus: assignment.status,
+        nurseNotes: assignment.nurseNotes,
+      },
+    });
 
     res.status(200).json({ 
       success: true, 

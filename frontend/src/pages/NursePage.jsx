@@ -19,6 +19,7 @@ import {
   LayoutDashboard,
   Menu,
 } from "lucide-react";
+import SidebarCollapseButton from "../components/SidebarCollapseButton";
 import {
   logAudit,
   fetchAuditLogs,
@@ -216,6 +217,9 @@ export default function NursePage({ onLogout }) {
           body: JSON.stringify({
             nurseResponse: treatmentLog.nurseResponse,
             nurseAccepted: true,
+            // Send the current care status along with the note so the doctor
+            // receives the summary and the status as one update.
+            careStatusUpdate: treatmentLog.careStatusUpdate,
           }),
         },
       );
@@ -388,18 +392,12 @@ export default function NursePage({ onLogout }) {
             )}
           </div>
 
-          {/* Sidebar Toggle Button */}
-          <div className="p-2 border-b border-[#29323a]">
-            <button
-              onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="w-full p-2 rounded-lg hover:bg-[#0E1B17] transition flex items-center justify-center gap-2 text-[#94A3B8] hover:text-white"
-            >
-              <Menu size={14} />
-              {sidebarOpen && (
-                <span className="text-[10px] font-bold">Toggle Menu</span>
-              )}
-            </button>
-          </div>
+          {/* Sidebar Collapse Control */}
+          <SidebarCollapseButton
+            collapsed={!sidebarOpen}
+            onToggle={() => setSidebarOpen((open) => !open)}
+            label="nursing sidebar"
+          />
 
           <nav className="p-3 space-y-1">
             <div className="text-[8px] font-black uppercase text-[#94A3B8] px-3 py-2 tracking-widest">
@@ -770,8 +768,7 @@ export default function NursePage({ onLogout }) {
                             Accept Instructions
                           </button>
                         )}
-                        {selectedPatient.nurseAccepted &&
-                          !selectedPatient.nurseResponse && (
+                        {selectedPatient.nurseAccepted && (
                             <div className="space-y-2">
                               <textarea
                                 rows="2"
@@ -791,7 +788,9 @@ export default function NursePage({ onLogout }) {
                                 disabled={saving}
                                 className="px-3 py-1.5 bg-[#0D9668] hover:bg-[#0D9668] text-white font-black uppercase tracking-widest text-[10px] rounded-lg shadow-sm disabled:opacity-50 font-mono"
                               >
-                                Send Response
+                                {selectedPatient.nurseResponse
+                                  ? "Update Response"
+                                  : "Send Response"}
                               </button>
                             </div>
                           )}

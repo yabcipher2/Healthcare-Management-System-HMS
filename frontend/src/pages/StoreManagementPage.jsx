@@ -22,6 +22,7 @@ import {
   User,
   Save,
 } from "lucide-react";
+import SidebarCollapseButton from "../components/SidebarCollapseButton";
 import {
   logAudit,
   fetchAuditLogs,
@@ -411,18 +412,12 @@ export default function StoreManagementPage({ onLogout }) {
             )}
           </div>
 
-          {/* Sidebar Toggle Button */}
-          <div className="p-2 border-b border-[#29323a]">
-            <button
-              onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="w-full p-2 rounded-lg hover:bg-[#0E1B17] transition flex items-center justify-center gap-2 text-[#94A3B8] hover:text-white"
-            >
-              <Menu size={14} />
-              {sidebarOpen && (
-                <span className="text-[10px] font-bold">Toggle Menu</span>
-              )}
-            </button>
-          </div>
+          {/* Sidebar Collapse Control */}
+          <SidebarCollapseButton
+            collapsed={!sidebarOpen}
+            onToggle={() => setSidebarOpen((open) => !open)}
+            label="store sidebar"
+          />
 
           {/* NAVIGATION */}
           <nav className="p-3 space-y-1 pt-4">

@@ -1,8 +1,10 @@
 const express = require("express");
+const path = require("path");
 const dotenv = require("dotenv");
 const cors = require("cors");
 const connectDB = require("./config/db");
 const maintenanceMiddleware = require("./middleware/maintenanceMiddleware");
+const { errorHandler } = require("./middleware/errorMiddleware");
 
 // Load settings environment format
 dotenv.config();
@@ -14,6 +16,10 @@ const startServer = async () => {
 
   app.use(express.json());
   app.use(cors());
+
+  // Uploaded scan images (ultrasound stills) are served from disk so patient
+  // records only carry a URL instead of a multi-megabyte base64 blob.
+  app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
   app.use(maintenanceMiddleware);
 
@@ -27,7 +33,13 @@ const startServer = async () => {
   app.use("/api/ward", require("./routes/wardRoutes"));
   app.use("/api/store", require("./routes/storeRoutes"));
   app.use("/api/lab", require("./routes/labRoutes"));
+  // Ultrasound / radiology worklist — was never mounted, so the imaging unit
+  // could not pull doctor referrals or release reports.
+  app.use("/api/ultrasound", require("./routes/ultrasoundRoutes"));
   app.use("/api/pharmacy", require("./routes/pharmacyRoutes"));
+  // Billing desks (lab / pharmacy cashier) — these routes existed but were
+  // never mounted, so the cashier queues always came back 404.
+  app.use("/api/cashier", require("./routes/cashierRoutes"));
   app.use("/api/system", require("./routes/systemRoutes"));
   app.use("/api/audit", require("./routes/auditRoutes"));
 
@@ -39,7 +51,13 @@ const startServer = async () => {
     });
   });
 
-  const PORT = process.env.PORT || 5000;
+  // Error handling middleware (must be last)
+  app.use(errorHandler);
+
+  // Guard against a non-numeric or 0 PORT (which would bind a random port the
+  // frontend cannot reach and make every API call fail with ERR_CONNECTION_REFUSED).
+  const parsedPort = Number.parseInt(process.env.PORT, 10);
+  const PORT = Number.isInteger(parsedPort) && parsedPort > 0 ? parsedPort : 5000;
   app.listen(PORT, () =>
     console.log(`HMS Infrastructure layer streaming live on port ${PORT}`),
   );
