@@ -37,6 +37,9 @@ const UserSchema = new mongoose.Schema(
       required: true,
     },
     dept: { type: String, trim: true },
+    // Throttling for the self-service password recovery flow.
+    resetAttempts: { type: Number, default: 0 },
+    resetWindowStart: { type: Date },
   },
   { timestamps: true },
 );
