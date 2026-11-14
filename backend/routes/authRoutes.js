@@ -4,6 +4,7 @@ const jwt = require("jsonwebtoken");
 const { protectRoute } = require("../middleware/authMiddleware");
 const User = require("../models/User");
 const StaffProfile = require("../models/StaffProfile");
+const AuditLog = require("../models/AuditLog");
 
 const getDashboardRoute = (role) => {
   const normalizedRole = (role || "").toLowerCase();
@@ -79,6 +80,114 @@ router.post("/change-password", protectRoute, async (req, res) => {
     await user.save();
 
     res.json({ success: true, message: "Password updated successfully." });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// @route   POST /api/auth/reset-password (Public Access)
+// Self-service recovery for staff who forgot their access key: the work email
+// plus the Staff ID printed on their ID badge prove the account is theirs. Each
+// account allows 5 attempts per 15 minutes, and every attempt is audit-logged.
+const RESET_WINDOW_MS = 15 * 60 * 1000;
+const MAX_RESET_ATTEMPTS = 5;
+
+router.post("/reset-password", async (req, res) => {
+  const email = String(req.body?.email || "")
+    .trim()
+    .toLowerCase();
+  const staffId = String(req.body?.staffId || "").trim();
+  const newPassword = String(req.body?.newPassword || "");
+
+  if (!email || !staffId || !newPassword) {
+    return res.status(400).json({
+      success: false,
+      message: "Email, Staff ID and the new password are required.",
+    });
+  }
+  if (newPassword.length < 4) {
+    return res.status(400).json({
+      success: false,
+      message: "The new password must be at least 4 characters long.",
+    });
+  }
+
+  try {
+    const user = await User.findOne({ email }).select("+password");
+    const now = Date.now();
+    const windowStart = user?.resetWindowStart
+      ? new Date(user.resetWindowStart).getTime()
+      : 0;
+    const attempts =
+      windowStart && now - windowStart < RESET_WINDOW_MS
+        ? user.resetAttempts || 0
+        : 0;
+
+    if (attempts >= MAX_RESET_ATTEMPTS) {
+      return res.status(429).json({
+        success: false,
+        message:
+          "Too many verification attempts. Wait 15 minutes or ask an administrator to reset the account.",
+      });
+    }
+
+    const staffIdMatches =
+      !!user &&
+      String(user.staffId || "")
+        .trim()
+        .toLowerCase() === staffId.toLowerCase();
+
+    if (!staffIdMatches) {
+      if (user) {
+        user.resetAttempts = attempts + 1;
+        user.resetWindowStart = new Date(now);
+        await user.save({ validateBeforeSave: false });
+        try {
+          await AuditLog.create({
+            action: "UPDATE",
+            module: "Auth",
+            userId: String(user._id),
+            userName: user.name,
+            userRole: user.role,
+            details: `Failed password recovery attempt for ${user.email}`,
+            ipAddress: req.ip || "",
+          });
+        } catch (auditError) {
+          console.error("Reset audit log failed:", auditError.message);
+        }
+      }
+      // Same answer whether the email is unknown or the Staff ID is wrong.
+      return res.status(401).json({
+        success: false,
+        message: "That email and Staff ID do not match any account.",
+      });
+    }
+
+    user.password = newPassword;
+    user.resetAttempts = 0;
+    user.resetWindowStart = undefined;
+    await user.save();
+
+    try {
+      await AuditLog.create({
+        action: "UPDATE",
+        module: "Auth",
+        userId: String(user._id),
+        userName: user.name,
+        userRole: user.role,
+        targetId: String(user._id),
+        targetType: "User",
+        details: `Password reset through self-service recovery for ${user.email}`,
+        ipAddress: req.ip || "",
+      });
+    } catch (auditError) {
+      console.error("Reset audit log failed:", auditError.message);
+    }
+
+    res.json({
+      success: true,
+      message: "Password updated. Sign in with your new access key.",
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

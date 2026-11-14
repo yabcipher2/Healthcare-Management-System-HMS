@@ -82,6 +82,59 @@
    GET https://your-service.onrender.com/api/auth
    ```
 
+## 🖥️ Deploy the Frontend (Static Site) and join it to the API
+
+The React app is a static bundle: it is hosted separately and talks to the backend over HTTP. The two are joined by one value, `VITE_API_URL`, which the build bakes into the bundle.
+
+### A. Create the Static Site
+1. Render Dashboard → **New +** → **Static Site**.
+2. Connect the same repository and branch (`full`).
+3. Build settings:
+   ```
+   Root Directory: (repo root)
+   Build Command:  cd frontend && npm install && npm run build
+   Publish Directory: frontend/dist
+   ```
+4. **Environment Variables** → add:
+   ```
+   VITE_API_URL = https://hms-backend.onrender.com
+   ```
+   Use your backend's real URL from its Render page — no trailing slash, no `/api`.
+5. **Redirects/Rewrites** → add:
+   ```
+   Source: /*      Destination: /index.html      Action: Rewrite
+   ```
+   This keeps client-side paths working on refresh or a direct link.
+6. **Create Static Site**.
+
+> `VITE_API_URL` is read at **build time**. If you add or change it after a build, use **Manual Deploy → Clear build cache & deploy**, otherwise the old bundle keeps calling the old URL.
+
+### B. Or deploy both from `render.yaml`
+`render.yaml` now declares both services (`hms-backend` web service and `hms-frontend` static site). Dashboard → **New +** → **Blueprint** → pick the repo → Render reads the file and asks for the `sync: false` values (`MONGO_URI`, `JWT_SECRET`, `VITE_API_URL`, optionally `CLIENT_ORIGIN`).
+
+### C. Allow the frontend origin on the backend (optional but recommended)
+Backend service → **Environment** → add:
+```
+CLIENT_ORIGIN = https://hms-frontend.onrender.com
+```
+Comma-separate several origins if you also test from somewhere else. Leave it unset and the API keeps accepting any origin (the previous behaviour).
+
+### D. Verify the join
+1. Open `https://hms-frontend.onrender.com` — the landing page and login form appear.
+2. DevTools → **Network**: `POST …/api/auth/login` answers `200` and the URL is your backend host.
+3. Sign in as a staff account (e.g. a doctor) and load the consult queue — the list arrives from Atlas through the backend.
+4. Reload a deep path (e.g. `/login`) — it still renders instead of returning `404`.
+
+### Common problems
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Page loads but every request fails with `ERR_CONNECTION_REFUSED … localhost:5000` | `VITE_API_URL` was empty at build time | Set it on the static site, then redeploy with a cleared cache |
+| `Failed to fetch` / CORS error in console | `CLIENT_ORIGIN` set to a different origin than the site actually uses | Match it exactly (scheme + host, no trailing slash) or clear the variable |
+| `404` after a refresh or on a direct link | Missing SPA rewrite | Add `/* → /index.html` as a **Rewrite** |
+| Login works but images are missing | Scan images live on the backend's disk, which is ephemeral on Render's free plan | Expect them to disappear after a redeploy; use object storage for permanence |
+| First request after idle takes ~30 s | Free instances sleep | Upgrade the instance type or keep it warm |
+
 ## 🔧 Environment Variables Configuration
 
 ### Required Variables for Render:
@@ -98,9 +151,13 @@
 ```env
 PORT=10000
 NODE_ENV=production
-MONGO_URI=mongodb+srv://yabmelaku3_db_user:jYGoN2qxGwfpwzlA@cluster0.f2ttn11.mongodb.net/MesraHealthcare?retryWrites=true&w=majority
+MONGO_URI=mongodb+srv://<db-user>:<db-password>@cluster0.xxxxx.mongodb.net/MesraHealthcare?retryWrites=true&w=majority
 JWT_SECRET=your-super-secret-jwt-key-change-this-in-production
+# Origin allowed to call this API (the frontend URL). Leave empty to allow any.
+CLIENT_ORIGIN=https://hms-frontend.onrender.com
 ```
+
+> The real Atlas password belongs in the Render dashboard and `backend/.env` only — never in this file or in git.
 
 ## 🗄️ MongoDB Atlas Configuration
 
@@ -278,10 +335,7 @@ curl -I https://your-service.onrender.com/api/health
    curl https://your-service.onrender.com/api/patients
    ```
 
-2. **Deploy Frontend** (Optional):
-   - Create separate web service for frontend
-   - Or use React/Vite build in same service
-   - Configure CORS to allow frontend domain
+2. **Deploy Frontend**: see “Deploy the Frontend” below — it is a separate static site joined to this API through `VITE_API_URL`.
 
 3. **Set Up Custom Domain**:
    - Go to Render service settings

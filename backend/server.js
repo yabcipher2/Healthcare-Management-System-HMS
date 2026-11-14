@@ -14,7 +14,30 @@ const app = express();
 const startServer = async () => {
   // Setup middleware first so server can respond to health checks even if DB fails
   app.use(express.json());
-  app.use(cors());
+
+  // The frontend can be served from a different origin (a Render static site,
+  // for example). CLIENT_ORIGIN holds a comma-separated allowlist; when it is
+  // not set every origin is accepted, which is how this app already behaves.
+  const allowedOrigins = (process.env.CLIENT_ORIGIN || "")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  app.use(
+    cors(
+      allowedOrigins.length
+        ? {
+            origin: (origin, callback) => {
+              // Same-origin / server-to-server requests send no Origin header.
+              if (!origin || allowedOrigins.includes(origin)) {
+                callback(null, true);
+                return;
+              }
+              callback(new Error(`Origin ${origin} is not allowed by CORS`));
+            },
+          }
+        : {},
+    ),
+  );
 
   // Uploaded scan images (ultrasound stills) are served from disk so patient
   // records only carry a URL instead of a multi-megabyte base64 blob.
