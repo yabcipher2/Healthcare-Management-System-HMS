@@ -322,7 +322,7 @@ export default function PharmacyPage({ onLogout, onNavigateToDoctor, onNavigateT
             onClick={onLogout}
             className="w-full py-2 bg-[#EF4444]/40 hover:bg-[#b91c1c] border border-[#EF4444]/30 text-[#EF4444] font-bold uppercase text-[10px] tracking-wider rounded-lg transition flex items-center justify-center gap-1.5"
           >
-            <LogOut size={13} /> {sidebarOpen && "Terminate Session"}
+            <LogOut size={13} /> {sidebarOpen && "Logout"}
           </button>
         </div>
       </aside>

@@ -396,7 +396,7 @@ export default function UltrasoundPage({ onLogout }) {
             }}
             className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-[#0E1B17] hover:bg-rose-950/40 border border-[#29323a] hover:border-rose-900 text-[#94A3B8] hover:text-rose-400 text-[11px] font-bold uppercase tracking-wider rounded-lg transition-all"
           >
-            <LogOut size={13} /> <span>Exit Platform</span>
+            <LogOut size={13} /> <span>Logout</span>
           </button>
         </div>
       </aside>
