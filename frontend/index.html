@@ -5,6 +5,20 @@
     <link rel="icon" type="image/svg+xml" href="/mesra icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Healthcare Management System</title>
+    <script>
+      // Apply the saved colour mode before first paint to avoid a flash.
+      (function () {
+        try {
+          var mode = localStorage.getItem("hms-theme") || "system";
+          var isDark =
+            mode === "dark" ||
+            (mode === "system" &&
+              window.matchMedia("(prefers-color-scheme: dark)").matches);
+          document.documentElement.dataset.theme = isDark ? "dark" : "light";
+          document.documentElement.style.colorScheme = isDark ? "dark" : "light";
+        } catch (error) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -2,47 +2,51 @@ import React from "react";
 import { Sun, Moon, Monitor } from "lucide-react";
 import { useTheme } from "../context/ThemeContext";
 
-// Cycle: light → system → dark → light
-const CONFIG = {
-  light: {
-    icon: <Sun size={13} />,
-    label: "Light",
-    title: "Light mode — click for System (dark green)",
-    cls: "bg-amber-50 text-amber-600 border-amber-200 hover:bg-amber-100",
-  },
-  system: {
-    icon: <Monitor size={13} />,
+/**
+ * Three-way colour mode control used in every dashboard header:
+ * Light · Dark · System (system follows the OS preference).
+ */
+const OPTIONS = [
+  { id: "light", label: "Light", Icon: Sun, hint: "Light colour scheme" },
+  { id: "dark", label: "Dark", Icon: Moon, hint: "Dark colour scheme" },
+  {
+    id: "system",
     label: "System",
-    title: "System mode (dark green) — click for Dark",
-    cls: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/25",
+    Icon: Monitor,
+    hint: "Match the system colour scheme",
   },
-  dark: {
-    icon: <Moon size={13} />,
-    label: "Dark",
-    title: "Dark mode — click for Light",
-    cls: "bg-indigo-500/15 text-indigo-400 border-indigo-500/30 hover:bg-indigo-500/25",
-  },
-};
+];
 
-const CYCLE = ["light", "system", "dark"];
-
-export default function ThemeToggle() {
-  const { theme, cycleTheme } = useTheme();
-  const cfg = CONFIG[theme] ?? CONFIG.light;
+export default function ThemeToggle({ className = "" }) {
+  const { mode, setMode } = useTheme();
 
   return (
-    <button
-      onClick={cycleTheme}
-      title={cfg.title}
-      aria-label={cfg.title}
-      className={`
-        flex items-center gap-1.5 px-2.5 py-1 shrink-0 select-none
-        rounded-full border font-mono font-bold text-[10px] uppercase tracking-widest
-        transition-all duration-150 ${cfg.cls}
-      `}
+    <div
+      role="group"
+      aria-label="Colour theme"
+      title="Colour theme"
+      className={`flex items-center gap-0.5 rounded-lg border border-white/10 bg-white/5 p-0.5 font-mono shrink-0 ${className}`}
     >
-      {cfg.icon}
-      <span>{cfg.label}</span>
-    </button>
+      {OPTIONS.map(({ id, label, Icon, hint }) => {
+        const active = mode === id;
+        return (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setMode(id)}
+            aria-pressed={active}
+            title={hint}
+            className={`flex items-center gap-1 rounded-md px-1.5 sm:px-2 py-1 text-[9px] font-black uppercase tracking-wider transition-colors ${
+              active
+                ? "bg-[#10B981] text-white shadow-sm"
+                : "text-[#94A3B8] hover:bg-white/10 hover:text-white"
+            }`}
+          >
+            <Icon size={11} />
+            <span className="hidden md:inline">{label}</span>
+          </button>
+        );
+      })}
+    </div>
   );
 }

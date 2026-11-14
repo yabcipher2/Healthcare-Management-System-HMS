@@ -61,6 +61,7 @@ import {
 } from "lucide-react";
 import SidebarCollapseButton from "../components/SidebarCollapseButton";
 import NotificationBell from "../components/NotificationBell";
+import ThemeToggle from "../components/ThemeToggle";
 
 // Palette for chart slices (reused cyclically for categories)
 const COLORS = [
@@ -967,6 +968,7 @@ const AdminDashboard = ({
             <Menu size={18} />
           </button>
           <NotificationBell role="Admin" />
+          <ThemeToggle />
         </header>
 
         {isManagementActive ? (
@@ -1486,6 +1488,11 @@ const AdminDashboard = ({
                                 <span className="text-[10px] text-[#10B981] font-bold uppercase tracking-wider">
                                   {staff.id}
                                 </span>
+                                {staff.staffId && (
+                                  <span className="block text-[9px] text-[#94A3B8] font-mono font-normal">
+                                    Staff ID: {staff.staffId}
+                                  </span>
+                                )}
                               </div>
                             </td>
                             <td className="p-1 px-4">

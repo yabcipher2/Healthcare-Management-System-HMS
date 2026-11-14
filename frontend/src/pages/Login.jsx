@@ -496,9 +496,9 @@ const Login = ({ onLoginSuccess, onBackClick }) => {
                 </button>
 
                 <p className="text-[9px] text-[#94A3B8] leading-relaxed text-center">
-                  Staff ID appears in the staff registry (for example
-                  STAFF-103). No access? Ask an administrator to reset the
-                  account.
+                  Your Staff ID is listed in the staff directory (Administrator →
+                  Staff Management), for example STAFF-103. No access? Ask an
+                  administrator to reset the account.
                 </p>
               </form>
             )}

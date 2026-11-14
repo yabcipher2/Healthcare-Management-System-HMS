@@ -31,6 +31,7 @@ import {
   fetchAuditAlertsCount,
 } from "../utils/audit";
 import NotificationBell from "../components/NotificationBell";
+import ThemeToggle from "../components/ThemeToggle";
 
 export default function WardPage({ onLogout }) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -540,6 +541,7 @@ export default function WardPage({ onLogout }) {
               Network State: Live
             </div>
             <NotificationBell role="Ward" />
+            <ThemeToggle />
           </div>
         </header>
 

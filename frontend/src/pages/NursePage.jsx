@@ -26,6 +26,7 @@ import {
   fetchAuditAlertsCount,
 } from "../utils/audit";
 import NotificationBell from "../components/NotificationBell";
+import ThemeToggle from "../components/ThemeToggle";
 
 export default function NursePage({ onLogout }) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -494,6 +495,8 @@ export default function NursePage({ onLogout }) {
           </div>
           {/* ... Header Status Badges ... */}
           <NotificationBell role="Nurse" />
+
+          <ThemeToggle />
         </header>
 
         <main className="flex-1 p-6 overflow-y-auto">
