@@ -218,7 +218,7 @@ function AppContent() {
   const isDashboardView = !["home", "login", "demo"].includes(activeView);
 
   return (
-    <>
+    <ThemeProvider pageKey={activeView}>
       <StatusBanner />
       <div className={isDashboardView ? "hms-dash" : undefined}>
       {/* 3. RECEPTION DASHBOARD NODE */}
@@ -321,16 +321,14 @@ function AppContent() {
         />
       )}
       </div>
-    </>
+    </ThemeProvider>
   );
 }
 
 export default function App() {
   return (
-    <ThemeProvider>
-      <HospitalStatusProvider>
-        <AppContent />
-      </HospitalStatusProvider>
-    </ThemeProvider>
+    <HospitalStatusProvider>
+      <AppContent />
+    </HospitalStatusProvider>
   );
 }
