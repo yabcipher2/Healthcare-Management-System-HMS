@@ -16,6 +16,7 @@ import {
   Search,
   ChevronRight,
   ChevronLeft,
+  ArrowLeft,
   AlertCircle,
   LayoutDashboard,
   Folder,
@@ -2756,10 +2757,23 @@ export default function DoctorPage({ onLogout, onNavigateToPharmacy }) {
           {selectedCase && activeTab === "consultationQueue" && (
             <div className="bg-[#0a1510] border border-[#29323a] rounded-xl shadow-md overflow-hidden animate-fadeIn text-white">
               {/* EMR Context Banner */}
-              <div className="p-3.5 bg-[#0E1B17] text-white flex justify-between items-center font-mono border-b border-[#29323a]">
-                <div>
-                  <span className="text-[9px] font-black tracking-widest text-[#10B981] block uppercase">ACTIVE CASE CONTEXT ROUTED</span>
-                  <h2 className="text-[13px] font-black text-white mt-0.5 tracking-tight uppercase">{selectedCase.patientName}</h2>
+              <div className="p-3.5 bg-[#0E1B17] text-white flex justify-between items-center font-mono border-b border-[#29323a] sticky top-0 z-10">
+                <div className="flex items-center gap-3 min-w-0">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedCase(null);
+                      setEmrSubTab("history");
+                    }}
+                    title="Close this record and go back to the patient matrix"
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[#29323a] bg-[#0a1510] text-[#94A3B8] hover:text-white hover:border-[#10B981]/50 transition font-bold text-[10px] uppercase tracking-wider shrink-0"
+                  >
+                    <ArrowLeft size={13} /> Patient Matrix
+                  </button>
+                  <div className="min-w-0">
+                    <span className="text-[9px] font-black tracking-widest text-[#10B981] block uppercase">ACTIVE CASE CONTEXT ROUTED</span>
+                    <h2 className="text-[13px] font-black text-white mt-0.5 tracking-tight uppercase truncate">{selectedCase.patientName}</h2>
+                  </div>
                 </div>
                 <div className="text-right text-[10px] text-[#94A3B8]">
                   <span>MRN ID Node: <strong className="text-white">{selectedCase.cardId}</strong> | Gender/Age: <strong className="text-white">{selectedCase.gender || "N/A"}, {selectedCase.age || "N/A"} Yrs</strong></span>
@@ -4246,10 +4260,22 @@ export default function DoctorPage({ onLogout, onNavigateToPharmacy }) {
                 <p className="text-[10px] font-mono text-[#94A3B8] max-w-md">
                   Closing this medical envelope saves current configuration states onto the primary reception grid layer, releasing operational workspace block locks.
                 </p>
-                <button type="button" onClick={executeReturnCardToReception}
-                  className="px-5 py-2.5 bg-[#10B981] hover:bg-[#0d9a6e] text-white font-mono font-bold text-[11px] uppercase tracking-widest rounded-lg transition shadow-md flex items-center gap-1.5">
-                  <ClipboardCheck size={14} /> Return Card to Reception Cluster Node
-                </button>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedCase(null);
+                      setEmrSubTab("history");
+                    }}
+                    className="px-4 py-2.5 bg-[#0a1510] hover:bg-[#152318] text-[#94A3B8] hover:text-white border border-[#29323a] font-mono font-bold text-[11px] uppercase tracking-widest rounded-lg transition flex items-center gap-1.5"
+                  >
+                    <ArrowLeft size={14} /> Back to Patient Matrix
+                  </button>
+                  <button type="button" onClick={executeReturnCardToReception}
+                    className="px-5 py-2.5 bg-[#10B981] hover:bg-[#0d9a6e] text-white font-mono font-bold text-[11px] uppercase tracking-widest rounded-lg transition shadow-md flex items-center gap-1.5">
+                    <ClipboardCheck size={14} /> Return Card to Reception Cluster Node
+                  </button>
+                </div>
               </div>
             </div>
           )}
