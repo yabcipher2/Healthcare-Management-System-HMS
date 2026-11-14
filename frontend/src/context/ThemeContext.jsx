@@ -16,8 +16,10 @@ import React, {
  *   system – follows the operating system preference and updates live
  *
  * The resolved theme is written to <html data-theme="light|dark">, which is what
- * the stylesheet keys off. The chosen mode is stored under `hms-theme` so every
- * dashboard (and the next sign-in) uses the same preference.
+ * the stylesheet keys off. Each dashboard stores its own preference under
+ * `hms-theme:<dashboard>`, so a doctor switching to light does not repaint the
+ * admin (or any other) dashboard. The most recent choice is also mirrored to
+ * `hms-theme` for the pre-paint script in index.html.
  */
 export const THEME_STORAGE_KEY = "hms-theme";
 export const THEME_MODES = ["light", "dark", "system"];
@@ -30,9 +32,9 @@ const getSystemTheme = () => {
     : "light";
 };
 
-const readStoredMode = () => {
+const readStoredMode = (key) => {
   try {
-    const stored = localStorage.getItem(THEME_STORAGE_KEY);
+    const stored = localStorage.getItem(key);
     return THEME_MODES.includes(stored) ? stored : DEFAULT_MODE;
   } catch {
     return DEFAULT_MODE;
@@ -47,8 +49,10 @@ const ThemeContext = createContext({
   cycleTheme: () => {},
 });
 
-export function ThemeProvider({ children }) {
-  const [mode, setModeState] = useState(readStoredMode);
+export function ThemeProvider({ pageKey = "global", children }) {
+  // One preference per dashboard, e.g. hms-theme:doctor / hms-theme:admin.
+  const storageKey = `${THEME_STORAGE_KEY}:${pageKey}`;
+  const [mode, setModeState] = useState(() => readStoredMode(storageKey));
   const [systemTheme, setSystemTheme] = useState(getSystemTheme);
 
   // Track the OS preference so "system" follows it live.
@@ -63,6 +67,11 @@ export function ThemeProvider({ children }) {
     return () => query.removeEventListener("change", handleChange);
   }, []);
 
+  // Switching dashboards adopts that dashboard's own saved mode.
+  useEffect(() => {
+    setModeState(readStoredMode(storageKey));
+  }, [storageKey]);
+
   const resolvedTheme = mode === "system" ? systemTheme : mode;
 
   // Publish the resolved theme for the stylesheet + native form controls.
@@ -71,30 +80,41 @@ export function ThemeProvider({ children }) {
     root.dataset.theme = resolvedTheme;
     root.dataset.themeMode = mode;
     root.style.colorScheme = resolvedTheme;
-  }, [mode, resolvedTheme]);
-
-  const setMode = useCallback((next) => {
-    if (!THEME_MODES.includes(next)) return;
-    setModeState(next);
     try {
-      localStorage.setItem(THEME_STORAGE_KEY, next);
+      // Remember the last used mode only for the pre-paint script; the real
+      // per-dashboard preference lives under `storageKey`.
+      localStorage.setItem(THEME_STORAGE_KEY, mode);
     } catch {
       // storage unavailable (private mode) — the session still works
     }
-  }, []);
+  }, [mode, resolvedTheme]);
+
+  const setMode = useCallback(
+    (next) => {
+      if (!THEME_MODES.includes(next)) return;
+      setModeState(next);
+      try {
+        localStorage.setItem(storageKey, next);
+      } catch {
+        // storage unavailable (private mode) — the session still works
+      }
+    },
+    [storageKey],
+  );
 
   // Kept for the older single-button toggle.
   const cycleTheme = useCallback(() => {
     setModeState((previous) => {
-      const next = THEME_MODES[(THEME_MODES.indexOf(previous) + 1) % THEME_MODES.length];
+      const next =
+        THEME_MODES[(THEME_MODES.indexOf(previous) + 1) % THEME_MODES.length];
       try {
-        localStorage.setItem(THEME_STORAGE_KEY, next);
+        localStorage.setItem(storageKey, next);
       } catch {
         // ignore
       }
       return next;
     });
-  }, []);
+  }, [storageKey]);
 
   const value = useMemo(
     () => ({ mode, theme: mode, resolvedTheme, setMode, cycleTheme }),
