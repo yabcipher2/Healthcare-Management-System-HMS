@@ -14,6 +14,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import SidebarCollapseButton from "../components/SidebarCollapseButton";
+import ThemeToggle from "../components/ThemeToggle";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
@@ -286,6 +287,7 @@ export default function LabCashierPage({ onLogout }) {
             </h1>
           </div>
           <div className="flex items-center gap-3 font-mono text-[10px] text-[#94A3B8]">
+            <ThemeToggle />
             <span className="hidden sm:block">ADDIS ABABA, ET</span>
             <span className="w-1.5 h-1.5 rounded-full bg-[#10B981] animate-pulse" title="System online sync" />
           </div>

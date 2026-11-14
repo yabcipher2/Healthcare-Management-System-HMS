@@ -30,6 +30,7 @@ import {
   fetchAuditAlertsCount,
 } from "../utils/audit";
 import NotificationBell from "../components/NotificationBell";
+import ThemeToggle from "../components/ThemeToggle";
 
 export default function PharmacyPage({ onLogout, onNavigateToDoctor, onNavigateToCashier }) {
   const [activeTab, setActiveTab] = useState("dashboard"); // dashboard, prescriptions, inventory, pharmacyAudit
@@ -340,6 +341,7 @@ export default function PharmacyPage({ onLogout, onNavigateToDoctor, onNavigateT
           </h1>
           <div className="flex items-center gap-3">
             <NotificationBell role="Pharmacy" />
+            <ThemeToggle />
             <div className="flex items-center gap-2 font-mono text-xs text-[#94A3B8] bg-[#0E1B17] px-3 py-1.5 rounded-lg border border-white/20/40">
               <Clock size={12} className="text-[#10B981]" /> Active System Sync:{" "}
               <span className="font-bold text-white">11:02 PM</span>

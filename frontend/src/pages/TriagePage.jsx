@@ -27,6 +27,7 @@ import {
   fetchAuditAlertsCount,
 } from "../utils/audit";
 import NotificationBell from "../components/NotificationBell";
+import ThemeToggle from "../components/ThemeToggle";
 
 export default function TriagePage({ onLogout }) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -536,6 +537,7 @@ export default function TriagePage({ onLogout }) {
               Network State: Live
             </div>
             <NotificationBell role="Triage" />
+            <ThemeToggle />
           </div>
         </header>
 

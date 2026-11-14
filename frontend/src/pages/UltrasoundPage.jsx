@@ -17,6 +17,7 @@ import {
   X,
 } from "lucide-react";
 import SidebarCollapseButton from "../components/SidebarCollapseButton";
+import ThemeToggle from "../components/ThemeToggle";
 
 // Preparation guidance keyed off the requested study name. The doctor asks for
 // a modality, not a prep sheet, so the unit derives the standard instruction.
@@ -410,6 +411,7 @@ export default function UltrasoundPage({ onLogout }) {
             {activeTab === "scanRegistry" && "Institutional Ultrasound Scan Registry"}
           </h1>
           <div className="flex items-center gap-2">
+            <ThemeToggle />
             <button
               onClick={loadQueue}
               className="flex items-center gap-1.5 font-mono text-[10px] font-bold uppercase tracking-wider text-[#94A3B8] bg-[#12241F] border border-[#29323a] hover:text-white px-3 py-1.5 rounded-lg transition"

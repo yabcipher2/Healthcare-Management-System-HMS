@@ -42,6 +42,7 @@ import {
   fetchAuditAlertsCount,
 } from "../utils/audit";
 import NotificationBell from "../components/NotificationBell";
+import ThemeToggle from "../components/ThemeToggle";
 
 export default function DoctorPage({ onLogout, onNavigateToPharmacy }) {
   // Navigation State Layout Matrix
@@ -2606,6 +2607,7 @@ export default function DoctorPage({ onLogout, onNavigateToPharmacy }) {
               </div>
             )}
             <NotificationBell role="Doctor" />
+            <ThemeToggle />
             <div className="bg-[#0a1510] text-[#94A3B8] border border-[#29323a] px-2 py-1 rounded font-bold">
               NODE SECURE IP: 10.100.10.4
             </div>

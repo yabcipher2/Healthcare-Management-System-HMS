@@ -22,6 +22,7 @@ import {
   fetchAuditAlertsCount,
 } from "../utils/audit";
 import NotificationBell from "../components/NotificationBell";
+import ThemeToggle from "../components/ThemeToggle";
 
 export default function LaboratoryPage({ onLogout }) {
   const [activeTab, setActiveTab] = useState("activeOrders");
@@ -374,6 +375,7 @@ export default function LaboratoryPage({ onLogout }) {
         <div className="bg-[#0E1B17] border-b border-white/20 px-6 py-3 flex justify-between items-center shadow-sm">
           <span className="text-[11px] font-black text-slate-300 uppercase tracking-widest font-mono">Lab Diagnostics Terminal</span>
           <NotificationBell role="Laboratory" />
+          <ThemeToggle />
         </div>
         <main className="flex-1 p-8 overflow-y-auto">
           {error && (

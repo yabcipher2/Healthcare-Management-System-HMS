@@ -20,6 +20,7 @@ import {
   useHospitalStatus,
 } from "./context/HospitalStatusContext";
 import { StatusBanner } from "./components/StatusBanner";
+import { ThemeProvider } from "./context/ThemeContext";
 
 function AppContent() {
   const { isMaintenance } = useHospitalStatus();
@@ -213,10 +214,13 @@ function AppContent() {
   ];
 
   const activeView = validPages.includes(currentPage) ? currentPage : "home";
+  // The light theme is scoped to dashboards: the public pages keep their design.
+  const isDashboardView = !["home", "login", "demo"].includes(activeView);
 
   return (
     <>
       <StatusBanner />
+      <div className={isDashboardView ? "hms-dash" : undefined}>
       {/* 3. RECEPTION DASHBOARD NODE */}
       {activeView === "reception" && (
         <ReceptionPage
@@ -316,14 +320,17 @@ function AppContent() {
           onLoginSuccess={handleLoginSuccess}
         />
       )}
+      </div>
     </>
   );
 }
 
 export default function App() {
   return (
-    <HospitalStatusProvider>
-      <AppContent />
-    </HospitalStatusProvider>
+    <ThemeProvider>
+      <HospitalStatusProvider>
+        <AppContent />
+      </HospitalStatusProvider>
+    </ThemeProvider>
   );
 }

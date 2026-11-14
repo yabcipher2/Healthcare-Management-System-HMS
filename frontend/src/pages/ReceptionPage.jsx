@@ -33,6 +33,7 @@ import {
   fetchAuditAlertsCount,
 } from "../utils/audit";
 import NotificationBell from "../components/NotificationBell";
+import ThemeToggle from "../components/ThemeToggle";
 
 const CHART_COLORS = [
   "#10B981",
@@ -590,6 +591,7 @@ export default function PatientManagementSystem({
           </div>
           <div className="flex items-center gap-3 font-mono text-[9px]">
             <NotificationBell role="Reception" />
+            <ThemeToggle />
             <div className="bg-[#0E1B17] text-[#10B981] border border-white/20 px-3 py-1 rounded-md font-bold uppercase flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 bg-[#10B981] rounded-full animate-ping" />
               Network State: Connected

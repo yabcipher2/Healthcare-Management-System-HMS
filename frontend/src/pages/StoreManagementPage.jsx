@@ -30,6 +30,7 @@ import {
   clearExpiredToken,
 } from "../utils/audit";
 import NotificationBell from "../components/NotificationBell";
+import ThemeToggle from "../components/ThemeToggle";
 
 export default function StoreManagementPage({ onLogout }) {
   const [activeTab, setActiveTab] = useState("dashboard");
@@ -525,6 +526,7 @@ export default function StoreManagementPage({ onLogout }) {
           </h1>
           <div className="flex items-center gap-3">
             <NotificationBell role="Store" />
+            <ThemeToggle />
             <div className="text-right font-mono text-[10px] text-[#94A3B8]">
               Status:{" "}
               <span className="text-[#10B981] font-bold">Live System</span>
