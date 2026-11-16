@@ -427,6 +427,43 @@ const AdminDashboard = ({
     }
   }, [API_URL]);
 
+  // ── Drug interaction cache (safety engine observability) ──────────────
+  const [interactionCache, setInteractionCache] = useState(null);
+  const [cacheBusy, setCacheBusy] = useState(false);
+
+  const loadInteractionCache = async () => {
+    try {
+      setCacheBusy(true);
+      const response = await fetch(`${API_URL}/api/interactions/cache/stats`, {
+        headers: getAuthHeaders(false),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.message || "Unable to load cache stats");
+      setInteractionCache(result.stats);
+    } catch (error) {
+      console.error("Interaction cache fetch error:", error.message);
+    } finally {
+      setCacheBusy(false);
+    }
+  };
+
+  const clearInteractionCache = async () => {
+    try {
+      setCacheBusy(true);
+      const response = await fetch(`${API_URL}/api/interactions/cache`, {
+        method: "DELETE",
+        headers: getAuthHeaders(false),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.message || "Unable to clear cache");
+      setInteractionCache(result.stats);
+    } catch (error) {
+      console.error("Interaction cache clear error:", error.message);
+    } finally {
+      setCacheBusy(false);
+    }
+  };
+
   useEffect(() => {
     if (!user) return;
     fetchStaffData();
@@ -1337,6 +1374,40 @@ const AdminDashboard = ({
                     bgColor="bg-[#EF4444]/10/50"
                     onAnchorAction={() => setActiveTab("audit")}
                   />
+                </div>
+
+                {/* Drug interaction safety cache */}
+                <div className="bg-[#0E1B17] p-6 rounded-[2.5rem] border border-white/10 shadow-sm mt-6">
+                  <div className="flex flex-wrap justify-between items-center gap-3">
+                    <div>
+                      <h3 className="text-sm font-black uppercase tracking-widest flex items-center gap-2">
+                        <ShieldCheck size={16} className="text-[#10B981]" />
+                        Drug Interaction Cache
+                      </h3>
+                      <p className="text-[10px] text-[#94A3B8] font-bold mt-1">
+                        Prescription safety checks are cached per drug set.
+                        {interactionCache
+                          ? ` ${interactionCache.size} entries · ${interactionCache.hits} hits / ${interactionCache.misses} misses · ${interactionCache.openfdaFailures} openFDA failures.`
+                          : " Load the statistics to inspect the cache."}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={loadInteractionCache}
+                        disabled={cacheBusy}
+                        className="px-4 py-2 rounded-xl bg-[#0E1B17] border border-white/10 text-[#94A3B8] text-[10px] font-black uppercase tracking-wider hover:text-white disabled:opacity-50 cursor-pointer"
+                      >
+                        {cacheBusy ? "Working..." : "Cache statistics"}
+                      </button>
+                      <button
+                        onClick={clearInteractionCache}
+                        disabled={cacheBusy}
+                        className="px-4 py-2 rounded-xl bg-[#EF4444]/20 border border-[#EF4444]/40 text-[#EF4444] text-[10px] font-black uppercase tracking-wider hover:bg-[#EF4444]/30 disabled:opacity-50 cursor-pointer"
+                      >
+                        Clear cache
+                      </button>
+                    </div>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">

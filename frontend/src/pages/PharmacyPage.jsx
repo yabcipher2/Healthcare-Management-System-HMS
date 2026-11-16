@@ -551,6 +551,49 @@ export default function PharmacyPage({ onLogout, onNavigateToDoctor, onNavigateT
                   </div>
                 </div>
 
+                {/* Prescribing safety screen: the doctor's interaction/allergy
+                    alerts and the override reason travel with the order. */}
+                {((selectedOrder.interactionAlerts || []).length > 0 ||
+                  selectedOrder.overrideReason) && (
+                  <div className="rounded-2xl border border-[#EF4444]/40 bg-[#EF4444]/10 p-4 space-y-2">
+                    <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-[#EF4444]">
+                      <ShieldAlert size={14} /> Prescribing safety screen
+                    </div>
+                    <ul className="space-y-1">
+                      {(selectedOrder.interactionAlerts || []).map(
+                        (alert, index) => (
+                          <li
+                            key={index}
+                            className="text-[11px] text-slate-200 font-mono"
+                          >
+                            <span
+                              className={`font-bold uppercase ${
+                                alert.severity === "major"
+                                  ? "text-[#EF4444]"
+                                  : alert.severity === "moderate"
+                                    ? "text-amber-400"
+                                    : "text-[#94A3B8]"
+                              }`}
+                            >
+                              {alert.severity}
+                            </span>{" "}
+                            {(alert.drugs || []).join(" + ")} — {alert.message}
+                          </li>
+                        ),
+                      )}
+                    </ul>
+                    {selectedOrder.overrideReason ? (
+                      <p className="text-[11px] text-amber-300 font-mono">
+                        Doctor's override reason: {selectedOrder.overrideReason}
+                      </p>
+                    ) : (
+                      <p className="text-[11px] text-[#94A3B8] font-mono">
+                        No override reason recorded.
+                      </p>
+                    )}
+                  </div>
+                )}
+
                 <h3 className="text-xs font-black text-[#94A3B8] uppercase tracking-widest block pt-2">
                   Authorized Medication Lines
                 </h3>

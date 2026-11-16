@@ -47,6 +47,8 @@ const PatientRecordSchema = new mongoose.Schema(
     triageDepartment: { type: String, trim: true, default: "" },
 
     pastDiagnoses: { type: [mongoose.Schema.Types.Mixed], default: [] },
+    // Structured allergy list used by the prescribing safety screen.
+    allergyList: { type: [String], default: [] },
 
     triage: { type: mongoose.Schema.Types.Mixed, default: undefined },
     consultation: { type: mongoose.Schema.Types.Mixed, default: undefined },

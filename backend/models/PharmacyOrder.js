@@ -54,6 +54,12 @@ const PharmacyOrderSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "PatientRecord",
     },
+    // Output of the drug-interaction / allergy screen at prescribing time.
+    // The pharmacist sees these alerts (and the doctor's override reason)
+    // before dispensing.
+    interactionAlerts: { type: [mongoose.Schema.Types.Mixed], default: [] },
+    overrideReason: { type: String, trim: true, default: "" },
+    interactionCheckedAt: { type: Date },
   },
   { timestamps: true },
 );

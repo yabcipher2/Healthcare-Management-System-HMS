@@ -6,6 +6,8 @@ const {
   medicinePrice,
   resolveMedicationLines,
 } = require("../config/medicinePrices");
+const { checkDrugSafety } = require("../services/drugInteractions");
+const { allergiesForPatient } = require("./interactionController");
 
 const logAudit = async (req, action, module, details, targetId = "") => {
   try {
@@ -173,6 +175,47 @@ const createPrescriptionOrder = async (req, res) => {
       medications,
       linkedPatient,
     } = req.body;
+    const overrideReason = String(req.body?.overrideReason || "").trim();
+
+    // Every prescription is screened before it reaches the dispensary: allergy
+    // contraindications and drug-drug interactions, with major alerts blocked
+    // until the prescriber records a justification.
+    let allergies = Array.isArray(req.body?.allergies) ? req.body.allergies : [];
+    if (linkedPatient) {
+      const patient = await PatientRecord.findById(linkedPatient).select(
+        "allergyList consultation.allergies",
+      );
+      if (patient) allergies = [...allergies, ...allergiesForPatient(patient)];
+    }
+    const drugNames = (medications || []).map((line) => line.name || line);
+    const safety = await checkDrugSafety({ drugs: drugNames, allergies });
+    const blockingAlerts = safety.alerts.filter(
+      (alert) => alert.severity === "major",
+    );
+
+    if (blockingAlerts.length > 0 && !overrideReason) {
+      return res.status(409).json({
+        success: false,
+        code: "INTERACTION_OVERRIDE_REQUIRED",
+        message:
+          "Major drug interaction or allergy alert — an override reason is required to save this prescription.",
+        alerts: safety.alerts,
+        overrideRequired: true,
+      });
+    }
+
+    if (blockingAlerts.length > 0 && overrideReason) {
+      await logAudit(
+        req,
+        "UPDATE",
+        "Drug Interaction",
+        `Major alert overridden for ${patientName} (${patientCardId}): ${blockingAlerts
+          .map((alert) => `${(alert.drugs || []).join(" + ")} [${alert.severity}]`)
+          .join("; ")} | Reason: ${overrideReason}`,
+        linkedPatient || "",
+      );
+    }
+
     // Price the lines at write time so the pharmacy desk, the cashier queue and
     // the final bill all agree on what the prescription costs.
     const inventory = await MedicineStock.find({})
@@ -195,6 +238,9 @@ const createPrescriptionOrder = async (req, res) => {
       status: "Pending",
       dispenseStatus: "Pending",
       linkedPatient,
+      interactionAlerts: safety.alerts,
+      overrideReason,
+      interactionCheckedAt: new Date(),
     });
 
     if (linkedPatient) {
@@ -202,6 +248,8 @@ const createPrescriptionOrder = async (req, res) => {
         "pharmacy.prescribedDrugs": lines.map((m) => m.name || m) || [],
         "pharmacy.prescriptionLines": lines,
         "pharmacy.dispenseStatus": "Pending",
+        "pharmacy.interactionAlerts": safety.alerts,
+        "pharmacy.overrideReason": overrideReason,
         currentStatus: "Pharmacy",
       });
     }
