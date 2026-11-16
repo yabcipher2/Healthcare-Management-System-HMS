@@ -171,6 +171,10 @@ export default function DoctorPage({ onLogout, onNavigateToPharmacy }) {
 
   // Pharmacy Prescriptions Selection & Out-of-Stock Grid Mocking
   const [selectedDrugs, setSelectedDrugs] = useState([]);
+  // Drug safety screen (interaction + allergy) for the prescription basket.
+  const [interactionAlerts, setInteractionAlerts] = useState([]);
+  const [overrideRequired, setOverrideRequired] = useState(false);
+  const [overrideReason, setOverrideReason] = useState("");
   const [currentDrugSelection, setCurrentDrugSelection] = useState({
     id: "",
     dosage: "500mg",
@@ -838,6 +842,7 @@ export default function DoctorPage({ onLogout, onNavigateToPharmacy }) {
           doctorName: doctorInfo.name,
           medications: medicationLines,
           linkedPatient: selectedCase._id,
+          overrideReason: overrideReason.trim() || undefined,
         }),
       });
       if (response.status === 401) {
@@ -846,9 +851,28 @@ export default function DoctorPage({ onLogout, onNavigateToPharmacy }) {
         return;
       }
       const data = await response.json().catch(() => ({}));
+
+      // A major interaction / allergy alert blocks the order until the
+      // prescriber records a justification.
+      if (
+        response.status === 409 ||
+        data.code === "INTERACTION_OVERRIDE_REQUIRED"
+      ) {
+        setInteractionAlerts(data.alerts || []);
+        setOverrideRequired(true);
+        triggerSystemBanner(
+          "BLOCKED: major drug alert — record an override reason to transmit.",
+        );
+        return;
+      }
+
       if (!response.ok) {
         throw new Error(data.message || "Pharmacy order dispatch failed.");
       }
+
+      setInteractionAlerts(data.data?.interactionAlerts || []);
+      setOverrideRequired(false);
+      setOverrideReason("");
 
       await logAudit({
         action: "CREATE",
@@ -2580,7 +2604,7 @@ export default function DoctorPage({ onLogout, onNavigateToPharmacy }) {
               onClick={onLogout}
               className="w-full py-1.5 bg-[#EF4444]/10 hover:bg-[#b91c1c]/40 border border-[#EF4444]/30 text-[#EF4444] font-bold uppercase text-[10px] tracking-widest rounded transition flex items-center justify-center gap-1.5"
             >
-              <LogOut size={12} /> Terminate Token Session
+              <LogOut size={12} /> Logout
             </button>
           </div>
         </div>
@@ -3627,10 +3651,70 @@ export default function DoctorPage({ onLogout, onNavigateToPharmacy }) {
                       )}
                     </div>
 
+                    {(interactionAlerts.length > 0 || overrideRequired) && (
+                      <div
+                        className={`mb-3 rounded-xl border p-3 font-mono ${overrideRequired ? "border-rose-300 bg-rose-50" : "border-emerald-200 bg-emerald-50"}`}
+                      >
+                        <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-slate-700">
+                          <ShieldAlert
+                            size={13}
+                            className={overrideRequired ? "text-rose-600" : "text-emerald-600"}
+                          />
+                          Drug safety screen — {interactionAlerts.length} alert
+                          {interactionAlerts.length === 1 ? "" : "s"}
+                          {!overrideRequired && " (none blocking)"}
+                        </div>
+                        <ul className="mt-2 space-y-1">
+                          {interactionAlerts.map((alert, index) => (
+                            <li key={index} className="text-[11px] text-slate-700">
+                              <span
+                                className={`font-bold uppercase ${
+                                  alert.severity === "major"
+                                    ? "text-rose-700"
+                                    : alert.severity === "moderate"
+                                      ? "text-amber-700"
+                                      : "text-slate-600"
+                                }`}
+                              >
+                                {alert.severity}
+                              </span>{" "}
+                              {(alert.drugs || []).join(" + ")} — {alert.message}
+                            </li>
+                          ))}
+                        </ul>
+
+                        {overrideRequired && (
+                          <div className="mt-2">
+                            <label className="block text-[9px] font-bold uppercase tracking-wider text-rose-700 mb-1">
+                              Override reason (required to transmit)
+                            </label>
+                            <textarea
+                              value={overrideReason}
+                              onChange={(e) => setOverrideReason(e.target.value)}
+                              rows={2}
+                              placeholder="Clinical justification, e.g. cardiology approved dual therapy"
+                              className="w-full bg-white border border-rose-200 rounded-lg p-2 text-[11px] text-slate-900 focus:outline-none focus:border-rose-400"
+                            />
+                            {!overrideReason.trim() && (
+                              <p className="text-[9px] text-rose-700 mt-1">
+                                Saving is blocked until a reason is provided — it
+                                will be written to the audit trail.
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     <div className="flex justify-end pt-1">
                       <button
                         type="submit"
-                        className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white font-mono font-bold text-[10px] uppercase tracking-widest rounded transition flex items-center gap-1 shadow-sm"
+                        disabled={overrideRequired && !overrideReason.trim()}
+                        className={`px-4 py-2 font-mono font-bold text-[10px] uppercase tracking-widest rounded transition flex items-center gap-1 shadow-sm ${
+                          overrideRequired && !overrideReason.trim()
+                            ? "bg-slate-300 text-slate-600 cursor-not-allowed"
+                            : "bg-orange-600 hover:bg-orange-700 text-white"
+                        }`}
                       >
                          Transmit Order to Pharmacy Dispensation Hub{" "}
                          <Send size={12} />

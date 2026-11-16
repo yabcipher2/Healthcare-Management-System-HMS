@@ -271,7 +271,7 @@ export default function LabCashierPage({ onLogout }) {
             className="w-full py-1.5 bg-[#EF4444]/10 hover:bg-[#b91c1c]/40 border border-[#EF4444]/30 text-[#EF4444] font-bold uppercase text-[10px] tracking-widest rounded transition flex items-center justify-center gap-1.5"
           >
             <LogOut size={12} />
-            {isSidebarOpen && "Terminate Token Session"}
+            {isSidebarOpen && "Logout"}
           </button>
         </div>
       </aside>

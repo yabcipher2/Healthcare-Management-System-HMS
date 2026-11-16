@@ -365,7 +365,7 @@ export default function LaboratoryPage({ onLogout }) {
             onClick={onLogout}
             className="w-full py-2 bg-[#EF4444]/40 hover:bg-[#b91c1c] border border-[#EF4444]/30 text-[#EF4444] font-bold uppercase text-[10px] tracking-wider rounded-lg transition flex items-center justify-center gap-1.5"
           >
-            <LogOut size={13} /> Terminate Session
+            <LogOut size={13} /> Logout
           </button>
         </div>
       </aside>

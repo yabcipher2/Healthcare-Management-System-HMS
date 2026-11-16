@@ -10,6 +10,11 @@ const {
   protectRoute,
   authorizeRoles,
 } = require("../middleware/authMiddleware");
+const {
+  listPatientAllergies,
+  addPatientAllergy,
+  removePatientAllergy,
+} = require("../controllers/interactionController");
 
 router
   .route("/")
@@ -60,5 +65,33 @@ router
     ),
     modifyWorkflow,
   );
+
+// Allergy list used by the prescribing safety screen
+router
+  .route("/:id/allergies")
+  .get(
+    protectRoute,
+    authorizeRoles(
+      "Administrator",
+      "Receptionist",
+      "Doctor",
+      "Nurse",
+      "Pharmacist",
+      "Triage",
+    ),
+    listPatientAllergies,
+  )
+  .post(
+    protectRoute,
+    authorizeRoles("Administrator", "Doctor", "Nurse", "Receptionist"),
+    addPatientAllergy,
+  );
+
+router.delete(
+  "/:id/allergies/:allergen",
+  protectRoute,
+  authorizeRoles("Administrator", "Doctor", "Nurse", "Receptionist"),
+  removePatientAllergy,
+);
 
 module.exports = router;

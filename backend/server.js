@@ -64,6 +64,8 @@ const startServer = async () => {
   app.use("/api/cashier", require("./routes/cashierRoutes"));
   app.use("/api/system", require("./routes/systemRoutes"));
   app.use("/api/audit", require("./routes/auditRoutes"));
+  // Drug-drug interaction and allergy screening for prescriptions.
+  app.use("/api/interactions", require("./routes/interactionRoutes"));
 
   // Health check endpoint for monitoring and load balancers
   app.get("/api/health", (req, res) => {
